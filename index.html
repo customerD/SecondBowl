@@ -1774,8 +1774,10 @@ function buildRouteUrl(ordersWithAddress, origin) {
   return url;
 }
 
-function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders }) {
+function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders, onRefresh }) {
   const [newCustomersToday, setNewCustomersToday] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dateIdx, setDateIdx] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -1794,6 +1796,12 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
       } catch { setNewCustomersToday(0); }
     })();
   }, [orders.length]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh?.();
+    setRefreshing(false);
+  };
 
   const date = todayStr();
   const mealsToday = orders.filter((o) => o.date === date && o.status !== "CANCELLED");
@@ -1822,9 +1830,20 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
     { label: "Pending delivery", value: pendingDelivery },
   ];
 
+  // The morning/evening capacity cards below can look at any of the next
+  // three days -- kept separate from "today" above, which drives the
+  // stats, next-serving card, and today's order list.
+  const dashDates = [todayStr(), addDays(todayStr(), 1), addDays(todayStr(), 2)];
+  const dashDateLabels = ["Today", "Tomorrow", "Day after"];
+  const selectedDate = dashDates[dateIdx];
+  const mealsForSelectedDate = orders.filter((o) => o.date === selectedDate && o.status !== "CANCELLED");
+
   return (
     <div>
-      <SectionTitle eyebrow="Admin" title="Today's operations" />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <SectionTitle eyebrow="Admin" title="Today's operations" />
+        <Btn small variant="ghost" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={13} /> {refreshing ? "Refreshing…" : "Refresh"}</Btn>
+      </div>
       {config.orderingPaused && (
         <Card style={{ marginBottom: 16, background: "var(--tone-bad-bg)", border: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
@@ -1858,13 +1877,21 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
         <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" }}>View orders &rarr;</span>
       </Card>
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        {dashDates.map((d, i) => (
+          <button key={d} onClick={() => setDateIdx(i)} className={"date-chip" + (i === dateIdx ? " active" : "")}>
+            {dashDateLabels[i]}
+          </button>
+        ))}
+      </div>
+
       <div className="session-grid" style={{ marginBottom: 18 }}>
         {["morning", "evening"].map((key) => {
           const sess = config.sessions[key];
-          const capacity = resolveCapacity(date, key, config, slotOverrides);
-          const count = slotCount(date, key, orders);
-          const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
-          const outForDelivery = mealsToday.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
+          const capacity = resolveCapacity(selectedDate, key, config, slotOverrides);
+          const count = slotCount(selectedDate, key, orders);
+          const st = sessionState(selectedDate, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+          const outForDelivery = mealsForSelectedDate.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
 
           // Group by which service area each order matched at order time, so
           // each area gets its own round-trip route instead of one combined
@@ -1967,9 +1994,11 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
    ADMIN: Orders
    ========================================================================= */
 
-function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onConsumeInitialFilter }) {
+function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onConsumeInitialFilter, onRefresh }) {
   const [openId, setOpenId] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => { setRefreshing(true); await onRefresh?.(); setRefreshing(false); };
   const [filters, setFilters] = useState({
     orderSearch: "", customer: "", dog: "", session: "", date: "",
     location: "", status: "", amountMin: "", amountMax: "",
@@ -2033,9 +2062,12 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." />
-        <Btn small variant={activeFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
-          <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-        </Btn>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn small variant="ghost" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={13} /> {refreshing ? "Refreshing…" : "Refresh"}</Btn>
+          <Btn small variant={activeFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
+            <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+          </Btn>
+        </div>
       </div>
 
       {showFilters && (
@@ -3456,54 +3488,56 @@ function App() {
   // storage loader (it would write a guessed "empty" value back to
   // storage on any failed read, not just a genuinely missing key), which
   // is now fixed at the source -- so it's safe to sync more here.
+  const refresh = useCallback(async () => {
+    try {
+      const [ord, dg, cfgRaw, cs, fo, so, loc, gal] = await loadManyOrSeed([
+        [K.orders, []], [K.dogs, []], [K.config, SEED_CONFIG],
+        [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
+        [K.locations, SEED_LOCATIONS], [K.gallery, []],
+      ]);
+
+      if (knownOrderIdsRef.current) {
+        const fresh = ord.filter((o) => !knownOrderIdsRef.current.has(o.id));
+        if (fresh.length > 0) {
+          const sessLabel = (o) => cfgRaw?.sessions?.[o.session]?.label || o.session;
+          const entries = fresh.map((o) => ({
+            id: uid("n_"), ts: Date.now(),
+            text: `New order — ${o.dogSnapshot.name}'s meal from ${o.customerName} for ${fmtDateLabel(o.date)} · ${sessLabel(o)}`,
+          }));
+          setNotifications((prev) => [...entries, ...prev].slice(0, 30));
+          setToast(entries[entries.length - 1]);
+          clearTimeout(toastTimerRef.current);
+          toastTimerRef.current = setTimeout(() => setToast(null), 6000);
+        }
+      }
+      knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
+
+      setOrders((prev) => (JSON.stringify(prev) === JSON.stringify(ord) ? prev : ord));
+      setDogs((prev) => (JSON.stringify(prev) === JSON.stringify(dg) ? prev : dg));
+
+      const withinEditGrace = Date.now() - lastAdminEditRef.current < EDIT_GRACE_MS;
+      if (!withinEditGrace) {
+        setConfig((prev) => {
+          const merged = { ...SEED_CONFIG, ...cfgRaw, sessions: { ...SEED_CONFIG.sessions, ...(cfgRaw.sessions || {}) } };
+          return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+        });
+        setCancelledSlots((prev) => (JSON.stringify(prev) === JSON.stringify(cs) ? prev : cs));
+        setForceOpenSlots((prev) => (JSON.stringify(prev) === JSON.stringify(fo) ? prev : fo));
+        setSlotOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(so) ? prev : so));
+        setLocations((prev) => (JSON.stringify(prev) === JSON.stringify(loc) ? prev : loc));
+        setGallery((prev) => (JSON.stringify(prev) === JSON.stringify(gal) ? prev : gal));
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (loading) return;
-    const refresh = async () => {
-      try {
-        const [ord, dg, cfgRaw, cs, fo, so, loc, gal] = await loadManyOrSeed([
-          [K.orders, []], [K.dogs, []], [K.config, SEED_CONFIG],
-          [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
-          [K.locations, SEED_LOCATIONS], [K.gallery, []],
-        ]);
-
-        if (knownOrderIdsRef.current) {
-          const fresh = ord.filter((o) => !knownOrderIdsRef.current.has(o.id));
-          if (fresh.length > 0) {
-            const entries = fresh.map((o) => ({
-              id: uid("n_"), ts: Date.now(),
-              text: `New order — ${o.dogSnapshot.name}'s meal from ${o.customerName}`,
-            }));
-            setNotifications((prev) => [...entries, ...prev].slice(0, 30));
-            setToast(entries[entries.length - 1]);
-            clearTimeout(toastTimerRef.current);
-            toastTimerRef.current = setTimeout(() => setToast(null), 6000);
-          }
-        }
-        knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
-
-        setOrders((prev) => (JSON.stringify(prev) === JSON.stringify(ord) ? prev : ord));
-        setDogs((prev) => (JSON.stringify(prev) === JSON.stringify(dg) ? prev : dg));
-
-        const withinEditGrace = Date.now() - lastAdminEditRef.current < EDIT_GRACE_MS;
-        if (!withinEditGrace) {
-          setConfig((prev) => {
-            const merged = { ...SEED_CONFIG, ...cfgRaw, sessions: { ...SEED_CONFIG.sessions, ...(cfgRaw.sessions || {}) } };
-            return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
-          });
-          setCancelledSlots((prev) => (JSON.stringify(prev) === JSON.stringify(cs) ? prev : cs));
-          setForceOpenSlots((prev) => (JSON.stringify(prev) === JSON.stringify(fo) ? prev : fo));
-          setSlotOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(so) ? prev : so));
-          setLocations((prev) => (JSON.stringify(prev) === JSON.stringify(loc) ? prev : loc));
-          setGallery((prev) => (JSON.stringify(prev) === JSON.stringify(gal) ? prev : gal));
-        }
-      } catch {}
-    };
     const pollMs = (typeof window !== "undefined" && window.__STORAGE_POLL_MS__) || 5000;
     const interval = setInterval(refresh, pollMs);
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
-  }, [loading]);
+  }, [loading, refresh]);
 
   const logAudit = useCallback((details) => {
     setAudit((prev) => {
@@ -3664,8 +3698,8 @@ function App() {
           {role === "customer" && tab === "contact" && <ContactView config={config} />}
           {role === "customer" && tab === "gallery" && <GalleryView myName={myName} dogs={dogs} gallery={gallery} setGallery={setGallery} config={config} />}
 
-          {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} onGoToOrders={goToOrdersFiltered} />}
-          {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrders} config={config} logAudit={logAudit} initialFilter={pendingOrderFilter} onConsumeInitialFilter={() => setPendingOrderFilter(null)} />}
+          {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} onGoToOrders={goToOrdersFiltered} onRefresh={refresh} />}
+          {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrders} config={config} logAudit={logAudit} initialFilter={pendingOrderFilter} onConsumeInitialFilter={() => setPendingOrderFilter(null)} onRefresh={refresh} />}
           {role === "admin" && tab === "ingredients" && <AdminIngredients ingredients={ingredients} setIngredients={setIngredients} logAudit={logAudit} />}
           {role === "admin" && tab === "rules" && <AdminRules breeds={breeds} setBreeds={setBreeds} engine={engine} setEngine={setEngine} logAudit={logAudit} />}
           {role === "admin" && tab === "locations" && <AdminLocations locations={locations} setLocations={setLocationsT} logAudit={logAudit} />}
