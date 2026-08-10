@@ -717,9 +717,6 @@ function PasswordModal({ value, setValue, error, onSubmit, onCancel }) {
         <Btn onClick={onSubmit} full>Unlock</Btn>
         <Btn variant="ghost" onClick={onCancel} full>Cancel</Btn>
       </div>
-      <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 14, lineHeight: 1.5 }}>
-        This is a simple screen lock for this demo, not real authentication &mdash; the app runs entirely in the browser, so treat it as a UI gate rather than security.
-      </p>
     </Modal>
   );
 }
@@ -782,10 +779,6 @@ function AuthModal({ mode, name, setName, pw, setPw, pw2, setPw2, error, busy, o
           </p>
         </>
       )}
-
-      <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 14, lineHeight: 1.5 }}>
-        This login is stored inside the app's own data store, not a real authentication service &mdash; good for keeping your dog profiles tied to your name, not for protecting sensitive information.
-      </p>
     </Modal>
   );
 }
@@ -1781,7 +1774,7 @@ function buildRouteUrl(ordersWithAddress, origin) {
   return url;
 }
 
-function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations }) {
+function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders }) {
   const [newCustomersToday, setNewCustomersToday] = useState(null);
 
   useEffect(() => {
@@ -1850,15 +1843,19 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
         ))}
       </div>
 
-      <Card style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+      <Card
+        style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", cursor: "pointer" }}
+        onClick={() => onGoToOrders?.(next.date, next.session)}
+      >
         <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 9, display: "flex" }}><Clock size={17} color="#fff" /></div>
         <div>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase" }}>Next up to be served</div>
           <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 }}>
-            {fmtDateLabel(next.date)} · {config.sessions[next.session].label} at {fmtTime(config.sessions[next.session].servingTime)}
+            {fmtDateLabel(next.date)} &middot; {config.sessions[next.session].label} at {fmtTime(config.sessions[next.session].servingTime)}
           </div>
         </div>
         <Pill>{nextCount} booked</Pill>
+        <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" }}>View orders &rarr;</span>
       </Card>
 
       <div className="session-grid" style={{ marginBottom: 18 }}>
@@ -1970,36 +1967,56 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
    ADMIN: Orders
    ========================================================================= */
 
-function AdminOrders({ orders, setOrders, config, logAudit }) {
-  const sorted = [...orders].sort((a, b) => b.createdAt - a.createdAt);
+function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onConsumeInitialFilter }) {
   const [openId, setOpenId] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
     orderSearch: "", customer: "", dog: "", session: "", date: "",
-    orderedFrom: "", orderedTo: "", status: "", amountMin: "", amountMax: "",
+    location: "", status: "", amountMin: "", amountMax: "",
   });
+
+  // Arriving here from the dashboard's "Next up to be served" card: apply
+  // its date/session as a filter and open the panel so it's obvious why
+  // the list is narrowed.
+  useEffect(() => {
+    if (initialFilter) {
+      setFilters((f) => ({ ...f, date: initialFilter.date || "", session: initialFilter.session || "" }));
+      setShowFilters(true);
+      onConsumeInitialFilter?.();
+    }
+  }, [initialFilter]);
+
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
-  const clearFilters = () => setFilters({ orderSearch: "", customer: "", dog: "", session: "", date: "", orderedFrom: "", orderedTo: "", status: "", amountMin: "", amountMax: "" });
+  const clearFilters = () => setFilters({ orderSearch: "", customer: "", dog: "", session: "", date: "", location: "", status: "", amountMin: "", amountMax: "" });
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
 
-  const customerOptions = [...new Set(orders.map((o) => o.customerName))].sort();
-  const dogOptions = [...new Set(orders.map((o) => o.dogSnapshot.name))].sort();
+  // Legacy orders (older than yesterday) stay fully intact in storage --
+  // this view just doesn't clutter itself with them by default. Nothing is
+  // deleted; Admin -> Data's exports and the underlying sheet still have
+  // everything.
+  const cutoff = addDays(todayStr(), -1);
+  const recentOrders = useMemo(() => orders.filter((o) => o.date >= cutoff), [orders, cutoff]);
 
-  const filtered = sorted.filter((o) => {
-    if (filters.orderSearch && !o.id.toLowerCase().includes(filters.orderSearch.toLowerCase())) return false;
-    if (filters.customer && o.customerName !== filters.customer) return false;
-    if (filters.dog && o.dogSnapshot.name !== filters.dog) return false;
-    if (filters.session && o.session !== filters.session) return false;
-    if (filters.date && o.date !== filters.date) return false;
-    if (filters.status && o.status !== filters.status) return false;
-    if (filters.orderedFrom && toDateStr(new Date(o.createdAt)) < filters.orderedFrom) return false;
-    if (filters.orderedTo && toDateStr(new Date(o.createdAt)) > filters.orderedTo) return false;
-    if (filters.amountMin && o.totalPrice < Number(filters.amountMin)) return false;
-    if (filters.amountMax && o.totalPrice > Number(filters.amountMax)) return false;
-    return true;
-  });
+  const customerOptions = useMemo(() => [...new Set(recentOrders.map((o) => o.customerName))].sort(), [recentOrders]);
+  const dogOptions = useMemo(() => [...new Set(recentOrders.map((o) => o.dogSnapshot.name))].sort(), [recentOrders]);
+  const locationOptions = useMemo(() => [...new Set(recentOrders.map((o) => o.locationName).filter(Boolean))].sort(), [recentOrders]);
 
-  const confirmedTotal = filtered.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0);
+  const filtered = useMemo(() => {
+    return [...recentOrders].sort((a, b) => b.createdAt - a.createdAt).filter((o) => {
+      if (filters.orderSearch && !o.id.toLowerCase().includes(filters.orderSearch.toLowerCase())) return false;
+      if (filters.customer && o.customerName !== filters.customer) return false;
+      if (filters.dog && o.dogSnapshot.name !== filters.dog) return false;
+      if (filters.session && o.session !== filters.session) return false;
+      if (filters.date && o.date !== filters.date) return false;
+      if (filters.location && o.locationName !== filters.location) return false;
+      if (filters.status && o.status !== filters.status) return false;
+      if (filters.amountMin && o.totalPrice < Number(filters.amountMin)) return false;
+      if (filters.amountMax && o.totalPrice > Number(filters.amountMax)) return false;
+      return true;
+    });
+  }, [recentOrders, filters]);
+
+  const confirmedTotal = useMemo(() => filtered.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0), [filtered]);
 
   const updateStatus = async (order, newStatus) => {
     const next = orders.map((o) => (o.id === order.id
@@ -2010,12 +2027,12 @@ function AdminOrders({ orders, setOrders, config, logAudit }) {
     logAudit(`Order for ${order.dogSnapshot.name} (${order.customerName}) moved to ${STATUS_LABEL[newStatus]}`);
   };
 
-  if (sorted.length === 0) return <div><SectionTitle eyebrow="Admin" title="Orders" /><Card><p style={{ margin: 0 }}>No orders placed yet.</p></Card></div>;
+  if (recentOrders.length === 0) return <div><SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." /><Card><p style={{ margin: 0 }}>No orders in this range yet.</p></Card></div>;
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-        <SectionTitle eyebrow="Admin" title="Orders" />
+        <SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." />
         <Btn small variant={activeFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
           <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
         </Btn>
@@ -2045,8 +2062,12 @@ function AdminOrders({ orders, setOrders, config, logAudit }) {
                 <option value="evening">{config.sessions.evening.label}</option>
               </select>
             </Field>
-            <Field label="Ordered from"><input type="date" style={inputStyle} value={filters.orderedFrom} onChange={(e) => setFilter("orderedFrom", e.target.value)} /></Field>
-            <Field label="Ordered to"><input type="date" style={inputStyle} value={filters.orderedTo} onChange={(e) => setFilter("orderedTo", e.target.value)} /></Field>
+            <Field label="Delivery area">
+              <select style={inputStyle} value={filters.location} onChange={(e) => setFilter("location", e.target.value)}>
+                <option value="">All areas</option>
+                {locationOptions.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </Field>
             <Field label="Status">
               <select style={inputStyle} value={filters.status} onChange={(e) => setFilter("status", e.target.value)}>
                 <option value="">All statuses</option>
@@ -2057,7 +2078,7 @@ function AdminOrders({ orders, setOrders, config, logAudit }) {
             <Field label="Amount max"><input type="number" min={0} style={inputStyle} value={filters.amountMax} onChange={(e) => setFilter("amountMax", e.target.value)} /></Field>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }}>{filtered.length} of {sorted.length} order{sorted.length === 1 ? "" : "s"}</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }}>{filtered.length} of {recentOrders.length} order{recentOrders.length === 1 ? "" : "s"}</span>
             {activeFilterCount > 0 && <Btn small variant="ghost" onClick={clearFilters}><X size={13} /> Clear filters</Btn>}
           </div>
         </Card>
@@ -2335,7 +2356,17 @@ function AdminRules({ breeds, setBreeds, engine, setEngine, logAudit }) {
 function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
   const update = (key, patch) => setConfig({ ...config, sessions: { ...config.sessions, [key]: { ...config.sessions[key], ...patch } } });
   const updateIdentity = (patch) => setConfig({ ...config, ...patch });
-  const save = async () => { await persist(K.config, config); logAudit("Updated configuration"); };
+  // Text/number fields update local state on every keystroke (so typing
+  // feels instant) and only actually persist to storage on blur -- once,
+  // when the field is done being edited, rather than on every keystroke.
+  const commitConfig = async () => { await persist(K.config, config); };
+  // Discrete click actions (the GST toggle) have no blur event to hook,
+  // so they persist immediately instead.
+  const updateIdentityNow = async (patch) => {
+    const next = { ...config, ...patch };
+    setConfig(next);
+    await persist(K.config, next);
+  };
 
   const cancelToday = async (key) => { const next = [...cancelledSlots, { date: todayStr(), session: key }]; setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Cancelled today's ${config.sessions[key].label} serving`); };
   const uncancelToday = async (key) => { const next = cancelledSlots.filter((c) => !(c.date === todayStr() && c.session === key)); setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Reinstated today's ${config.sessions[key].label} serving`); };
@@ -2416,9 +2447,9 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
         </Btn>
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed var(--ring-strong)" }}>
           <Field label="Message shown to customers while paused">
-            <input style={inputStyle} value={config.orderingPausedMessage} onChange={(e) => updateIdentity({ orderingPausedMessage: e.target.value })} placeholder="We're not taking new orders right now. Please check back soon." />
+            <input style={inputStyle} value={config.orderingPausedMessage} onChange={(e) => updateIdentity({ orderingPausedMessage: e.target.value })} onBlur={commitConfig} placeholder="We're not taking new orders right now. Please check back soon." />
           </Field>
-          <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Saved with the "Save settings" button below.</p>
+          <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Saves automatically when you click away from the field.</p>
         </div>
       </Card>
 
@@ -2428,14 +2459,14 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
           <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Business identity</div>
         </div>
         <div className="form-grid-2">
-          <Field label="Business name"><input style={inputStyle} value={config.serviceName} onChange={(e) => updateIdentity({ serviceName: e.target.value })} /></Field>
-          <Field label="Tagline"><input style={inputStyle} value={config.tagline} onChange={(e) => updateIdentity({ tagline: e.target.value })} /></Field>
-          <Field label="Contact email"><input type="email" style={inputStyle} value={config.contactEmail} onChange={(e) => updateIdentity({ contactEmail: e.target.value })} placeholder="hello@secondbowl.com" /></Field>
-          <Field label="Contact phone"><input style={inputStyle} value={config.contactPhone} onChange={(e) => updateIdentity({ contactPhone: e.target.value })} placeholder="+91 90000 00000" /></Field>
+          <Field label="Business name"><input style={inputStyle} value={config.serviceName} onChange={(e) => updateIdentity({ serviceName: e.target.value })} onBlur={commitConfig} /></Field>
+          <Field label="Tagline"><input style={inputStyle} value={config.tagline} onChange={(e) => updateIdentity({ tagline: e.target.value })} onBlur={commitConfig} /></Field>
+          <Field label="Contact email"><input type="email" style={inputStyle} value={config.contactEmail} onChange={(e) => updateIdentity({ contactEmail: e.target.value })} onBlur={commitConfig} placeholder="hello@secondbowl.com" /></Field>
+          <Field label="Contact phone"><input style={inputStyle} value={config.contactPhone} onChange={(e) => updateIdentity({ contactPhone: e.target.value })} onBlur={commitConfig} placeholder="+91 90000 00000" /></Field>
         </div>
         <div style={{ marginTop: 12 }}>
           <Field label="About us">
-            <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical" }} value={config.aboutUs} onChange={(e) => updateIdentity({ aboutUs: e.target.value })} placeholder="What we are, and what we do." />
+            <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical" }} value={config.aboutUs} onChange={(e) => updateIdentity({ aboutUs: e.target.value })} onBlur={commitConfig} placeholder="What we are, and what we do." />
           </Field>
         </div>
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>Shown to customers on the Contact tab, under the contact details.</p>
@@ -2444,11 +2475,11 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
       <Card style={{ marginBottom: 16 }}>
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Billing</div>
         <div className="form-grid-2">
-          <Field label="Currency symbol"><input style={inputStyle} value={config.currencySymbol} onChange={(e) => updateIdentity({ currencySymbol: e.target.value })} placeholder="₹" /></Field>
-          <Field label="GST rate (%)"><input type="number" min={0} step="0.5" style={inputStyle} value={config.gstPercent} onChange={(e) => updateIdentity({ gstPercent: Number(e.target.value) })} disabled={!config.gstEnabled} /></Field>
+          <Field label="Currency symbol"><input style={inputStyle} value={config.currencySymbol} onChange={(e) => updateIdentity({ currencySymbol: e.target.value })} onBlur={commitConfig} placeholder="₹" /></Field>
+          <Field label="GST rate (%)"><input type="number" min={0} step="0.5" style={inputStyle} value={config.gstPercent} onChange={(e) => updateIdentity({ gstPercent: Number(e.target.value) })} onBlur={commitConfig} disabled={!config.gstEnabled} /></Field>
         </div>
         <div style={{ marginTop: 14 }}>
-          <Btn small variant={config.gstEnabled ? "accent" : "ghost"} onClick={() => updateIdentity({ gstEnabled: !config.gstEnabled })}>
+          <Btn small variant={config.gstEnabled ? "accent" : "ghost"} onClick={() => updateIdentityNow({ gstEnabled: !config.gstEnabled })}>
             {config.gstEnabled ? "GST is ON — click to turn off" : "GST is OFF — click to turn on"}
           </Btn>
         </div>
@@ -2458,7 +2489,7 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
       <Card style={{ marginBottom: 16 }}>
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Meal builder note</div>
         <Field label="Note shown as a checkbox while building a meal">
-          <input style={inputStyle} value={config.mealNote} onChange={(e) => updateIdentity({ mealNote: e.target.value })} placeholder="A pinch of salt, turmeric and ghee will be added." />
+          <input style={inputStyle} value={config.mealNote} onChange={(e) => updateIdentity({ mealNote: e.target.value })} onBlur={commitConfig} placeholder="A pinch of salt, turmeric and ghee will be added." />
         </Field>
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>Shown as a checked-by-default checkbox on the Order Food page, just above the total.</p>
       </Card>
@@ -2474,9 +2505,9 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
             <Card key={key}>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17, marginBottom: 12 }}>{sess.label} session</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <Field label="Serving time"><input type="time" style={inputStyle} value={sess.servingTime} onChange={(e) => update(key, { servingTime: e.target.value })} /></Field>
-                <Field label="Orders close at"><input type="time" style={inputStyle} value={sess.closeTime} onChange={(e) => update(key, { closeTime: e.target.value })} /></Field>
-                <Field label="Default capacity (orders)"><input type="number" min={0} style={inputStyle} value={sess.capacity} onChange={(e) => update(key, { capacity: Number(e.target.value) })} /></Field>
+                <Field label="Serving time"><input type="time" style={inputStyle} value={sess.servingTime} onChange={(e) => update(key, { servingTime: e.target.value })} onBlur={commitConfig} /></Field>
+                <Field label="Orders close at"><input type="time" style={inputStyle} value={sess.closeTime} onChange={(e) => update(key, { closeTime: e.target.value })} onBlur={commitConfig} /></Field>
+                <Field label="Default capacity (orders)"><input type="number" min={0} style={inputStyle} value={sess.capacity} onChange={(e) => update(key, { capacity: Number(e.target.value) })} onBlur={commitConfig} /></Field>
               </div>
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 }}>
                 <div>Today&apos;s status: <Pill tone={STATE_STYLE[st].tone}>{STATE_STYLE[st].label}</Pill></div>
@@ -2487,9 +2518,8 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
           );
         })}
       </div>
-      <Btn onClick={save} style={{ marginTop: 16 }}><Save size={15} /> Save settings</Btn>
-      <p style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 10, marginBottom: 28, maxWidth: 560 }}>
-        Reducing capacity below the number of orders already placed will never cancel those confirmed orders — it only blocks new ones. "Open this slot now" overrides today's close time so customers can keep ordering past the scheduled cutoff, until it's full or you revert it.
+      <p style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 16, marginBottom: 28, maxWidth: 560 }}>
+        Every field above saves itself automatically (as soon as you click away from it, or immediately for toggles) &mdash; there's nothing separate to save. Reducing capacity below the number of orders already placed will never cancel those confirmed orders &mdash; it only blocks new ones. "Open this slot now" overrides today's close time so customers can keep ordering past the scheduled cutoff, until it's full or you revert it.
       </p>
 
       <SectionTitle eyebrow="Admin" title="Future dates & slots" sub="Override capacity, or cancel / force-open, for any specific date instead of just today. Customers can currently book up to 14 days ahead." />
@@ -3322,6 +3352,7 @@ function App() {
   const [myName, setMyName] = useState("");
   const [tab, setTab] = useState("order");
   const [pendingDogId, setPendingDogId] = useState(null);
+  const [pendingOrderFilter, setPendingOrderFilter] = useState(null);
 
   const [config, setConfig] = useState(SEED_CONFIG);
   const [ingredients, setIngredients] = useState(SEED_INGREDIENTS);
@@ -3360,6 +3391,24 @@ function App() {
   const [lastReadTs, setLastReadTs] = useState(0);
   const [toast, setToast] = useState(null);
   const knownOrderIdsRef = useRef(null);
+  // The periodic sync poll (below) refetches shared data on a timer and
+  // overwrites local state whenever it looks different from what's already
+  // fetched -- which is exactly right when the change came from *another*
+  // browser, but wrong for the few seconds right after *this* admin makes
+  // an edit here: a poll landing in that window can fetch a snapshot from
+  // just before the edit was persisted and stomp the very change that was
+  // just made, making it look like the value silently reverted. These
+  // wrapped setters mark the moment of any local admin edit; the poll
+  // skips overwriting that piece of state for a few seconds afterward,
+  // giving the edit's own persist() call time to actually land first.
+  const lastAdminEditRef = useRef(0);
+  const EDIT_GRACE_MS = 8000;
+  const setConfigT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setConfig(v); }, []);
+  const setCancelledSlotsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setCancelledSlots(v); }, []);
+  const setForceOpenSlotsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setForceOpenSlots(v); }, []);
+  const setSlotOverridesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setSlotOverrides(v); }, []);
+  const setLocationsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setLocations(v); }, []);
+  const setGalleryT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setGallery(v); }, []);
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
@@ -3434,15 +3483,19 @@ function App() {
 
         setOrders((prev) => (JSON.stringify(prev) === JSON.stringify(ord) ? prev : ord));
         setDogs((prev) => (JSON.stringify(prev) === JSON.stringify(dg) ? prev : dg));
-        setConfig((prev) => {
-          const merged = { ...SEED_CONFIG, ...cfgRaw, sessions: { ...SEED_CONFIG.sessions, ...(cfgRaw.sessions || {}) } };
-          return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
-        });
-        setCancelledSlots((prev) => (JSON.stringify(prev) === JSON.stringify(cs) ? prev : cs));
-        setForceOpenSlots((prev) => (JSON.stringify(prev) === JSON.stringify(fo) ? prev : fo));
-        setSlotOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(so) ? prev : so));
-        setLocations((prev) => (JSON.stringify(prev) === JSON.stringify(loc) ? prev : loc));
-        setGallery((prev) => (JSON.stringify(prev) === JSON.stringify(gal) ? prev : gal));
+
+        const withinEditGrace = Date.now() - lastAdminEditRef.current < EDIT_GRACE_MS;
+        if (!withinEditGrace) {
+          setConfig((prev) => {
+            const merged = { ...SEED_CONFIG, ...cfgRaw, sessions: { ...SEED_CONFIG.sessions, ...(cfgRaw.sessions || {}) } };
+            return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+          });
+          setCancelledSlots((prev) => (JSON.stringify(prev) === JSON.stringify(cs) ? prev : cs));
+          setForceOpenSlots((prev) => (JSON.stringify(prev) === JSON.stringify(fo) ? prev : fo));
+          setSlotOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(so) ? prev : so));
+          setLocations((prev) => (JSON.stringify(prev) === JSON.stringify(loc) ? prev : loc));
+          setGallery((prev) => (JSON.stringify(prev) === JSON.stringify(gal) ? prev : gal));
+        }
       } catch {}
     };
     const pollMs = (typeof window !== "undefined" && window.__STORAGE_POLL_MS__) || 5000;
@@ -3546,6 +3599,7 @@ function App() {
   };
 
   const goToOrderWithDog = (dogId) => { setPendingDogId(dogId); setTab("order"); };
+  const goToOrdersFiltered = (date, session) => { setPendingOrderFilter({ date, session }); setTab("orders"); };
 
   CURRENCY_SYMBOL = config.currencySymbol || "₹";
 
@@ -3610,23 +3664,23 @@ function App() {
           {role === "customer" && tab === "contact" && <ContactView config={config} />}
           {role === "customer" && tab === "gallery" && <GalleryView myName={myName} dogs={dogs} gallery={gallery} setGallery={setGallery} config={config} />}
 
-          {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} />}
-          {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrders} config={config} logAudit={logAudit} />}
+          {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} onGoToOrders={goToOrdersFiltered} />}
+          {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrders} config={config} logAudit={logAudit} initialFilter={pendingOrderFilter} onConsumeInitialFilter={() => setPendingOrderFilter(null)} />}
           {role === "admin" && tab === "ingredients" && <AdminIngredients ingredients={ingredients} setIngredients={setIngredients} logAudit={logAudit} />}
           {role === "admin" && tab === "rules" && <AdminRules breeds={breeds} setBreeds={setBreeds} engine={engine} setEngine={setEngine} logAudit={logAudit} />}
-          {role === "admin" && tab === "locations" && <AdminLocations locations={locations} setLocations={setLocations} logAudit={logAudit} />}
+          {role === "admin" && tab === "locations" && <AdminLocations locations={locations} setLocations={setLocationsT} logAudit={logAudit} />}
           {role === "admin" && tab === "schedule" && (
             <AdminSchedule
-              config={config} orders={orders} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlots}
-              forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlots}
-              slotOverrides={slotOverrides} setSlotOverrides={setSlotOverrides} logAudit={logAudit}
+              config={config} orders={orders} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlotsT}
+              forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlotsT}
+              slotOverrides={slotOverrides} setSlotOverrides={setSlotOverridesT} logAudit={logAudit}
             />
           )}
           {role === "admin" && tab === "payments" && <AdminPayments qrCode={qrCode} setQrCode={setQrCode} logAudit={logAudit} />}
           {role === "admin" && tab === "faq" && <AdminFAQ faqs={faqs} setFaqs={setFaqs} logAudit={logAudit} />}
-          {role === "admin" && tab === "gallery" && <AdminGallery gallery={gallery} setGallery={setGallery} config={config} setConfig={setConfig} logAudit={logAudit} />}
+          {role === "admin" && tab === "gallery" && <AdminGallery gallery={gallery} setGallery={setGalleryT} config={config} setConfig={setConfigT} logAudit={logAudit} />}
           {role === "admin" && tab === "data" && <AdminData orders={orders} dogs={dogs} audit={audit} logAudit={logAudit} />}
-          {role === "admin" && tab === "settings" && <AdminSettings config={config} setConfig={setConfig} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlots} forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlots} slotOverrides={slotOverrides} setSlotOverrides={setSlotOverrides} logAudit={logAudit} />}
+          {role === "admin" && tab === "settings" && <AdminSettings config={config} setConfig={setConfigT} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlotsT} forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlotsT} slotOverrides={slotOverrides} setSlotOverrides={setSlotOverridesT} logAudit={logAudit} />}
           {role === "admin" && tab === "audit" && <AdminAudit audit={audit} />}
         </main>
       </div>
@@ -3683,7 +3737,7 @@ function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName,
                 <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface-muted)", borderRadius: 980, padding: "7px 12px" }}>
                   <CircleUser size={15} /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{myName}</span>
                 </div>
-                <button onClick={signOut} className="icon-btn" aria-label="Sign out" title="Sign out"><LogOut size={15} /></button>
+                <Btn small variant="ghost" onClick={signOut}><LogOut size={13} /> Log out</Btn>
               </div>
             ) : (
               <div style={{ display: "flex", gap: 6 }}>
