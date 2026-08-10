@@ -633,13 +633,13 @@ function Btn({ children, onClick, variant = "primary", disabled, style, small, f
   );
 }
 
-function Card({ children, style, className }) {
+function Card({ children, style, className, ...rest }) {
   return (
     <div className={className} style={{
       background: "var(--surface)", border: "1px solid var(--ring)", borderRadius: 20,
       padding: 22, boxShadow: "var(--card-shadow)",
       ...style,
-    }}>
+    }} {...rest}>
       {children}
     </div>
   );
