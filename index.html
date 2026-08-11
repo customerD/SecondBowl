@@ -1633,6 +1633,11 @@ function InvoiceModal({ order, config, onClose }) {
   if (!order) return null;
   const currency = order.currencySymbol || config.currencySymbol || "₹";
   const money = (n) => `${currency}${Math.round(n).toLocaleString("en-IN")}`;
+  const rateMoney = (n) => {
+    const rounded = Math.round(n * 100) / 100;
+    const str = rounded % 1 === 0 ? String(rounded) : rounded.toFixed(2).replace(/0$/, "");
+    return `${currency}${str}`;
+  };
   return (
     <Modal onCancel={onClose} maxWidth={520}>
       <div className="invoice-print">
@@ -1684,7 +1689,7 @@ function InvoiceModal({ order, config, onClose }) {
               <tr key={ing.id} style={{ borderBottom: "1px solid var(--ring)" }}>
                 <td style={{ padding: "6px 4px" }}>{ing.name}</td>
                 <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{ing.qty} {ing.unit}</td>
-                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{money(ing.pricePerUnit)}/{ing.unit}</td>
+                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{rateMoney(ing.pricePerUnit)}/{ing.unit}</td>
                 <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{money(ing.qty * ing.pricePerUnit)}</td>
               </tr>
             ))}
