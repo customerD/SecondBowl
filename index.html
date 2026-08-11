@@ -82,6 +82,25 @@ async function parseSheetsResponse_(res) {
   }
 }
 
+// Keys the app treats as a whole array, now stored one row per record in
+// their own sheet tab instead of one cell holding the entire array. This
+// mapping is what makes that transparent to the rest of the app: get/set
+// for these keys still hand back/accept a single JSON array string, same
+// as always, just backed by a different shape on the Sheets side.
+const COLLECTION_SHEETS = {
+  "dfp:orders": "Orders",
+  "dfp:dogs": "Dogs",
+  "dfp:ingredients": "Ingredients",
+  "dfp:breeds": "Breeds",
+  "dfp:locations": "Locations",
+  "dfp:faqs": "FAQs",
+  "dfp:audit": "AuditLog",
+  "dfp:gallery": "Gallery",
+  "dfp:slotOverrides": "SlotOverrides",
+  "dfp:cancelledSlots": "CancelledSlots",
+  "dfp:forceOpenSlots": "ForceOpenSlots",
+};
+
 async function sheetsGet_(key) {
   const url = `${SHEETS_API_URL}?action=get&key=${encodeURIComponent(key)}${SHEETS_TOKEN ? `&token=${encodeURIComponent(SHEETS_TOKEN)}` : ""}`;
   const res = await fetch(url);
@@ -89,9 +108,15 @@ async function sheetsGet_(key) {
   if (data.error) throw new Error(data.error);
   return { key: data.key, value: data.value };
 }
-async function sheetsGetMany_(keys) {
-  const url = `${SHEETS_API_URL}?action=getMany&keys=${encodeURIComponent(keys.join(","))}${SHEETS_TOKEN ? `&token=${encodeURIComponent(SHEETS_TOKEN)}` : ""}`;
-  const res = await fetch(url);
+// A single request covering any mix of plain scalar keys and whole
+// collections -- this is what keeps a page load or the refresh button
+// down to one round trip even though data now lives across several tabs.
+async function sheetsGetBundle_(scalarKeys, collKeys) {
+  const params = new URLSearchParams({ action: "getBundle" });
+  if (scalarKeys.length) params.set("keys", scalarKeys.join(","));
+  if (collKeys.length) params.set("collKeys", collKeys.join(","));
+  if (SHEETS_TOKEN) params.set("token", SHEETS_TOKEN);
+  const res = await fetch(`${SHEETS_API_URL}?${params.toString()}`);
   const data = await parseSheetsResponse_(res);
   if (data.error) throw new Error(data.error);
   return data; // { values: { key: string|null, ... } }
@@ -151,7 +176,11 @@ window.storage = {
   // useful when Sheets is the active backend (see loadManyOrSeed in the
   // app body: it feature-detects this and safely no-ops without it).
   async getMany(keys, shared) {
-    if (shared && SHEETS_ENABLED) return sheetsGetMany_(keys);
+    if (shared && SHEETS_ENABLED) {
+      const scalarKeys = keys.filter((k) => !COLLECTION_SHEETS[k]);
+      const collKeys = keys.filter((k) => COLLECTION_SHEETS[k]);
+      return sheetsGetBundle_(scalarKeys, collKeys);
+    }
     const values = {};
     for (const k of keys) {
       try { values[k] = localGet_(k).value; } catch { values[k] = null; }
