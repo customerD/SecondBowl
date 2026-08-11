@@ -1280,7 +1280,7 @@ function PhoneGate({ myName, resolved, onResolved }) {
             <input style={inputStyle} value={draftPhone} onChange={(e) => setDraftPhone(e.target.value)} placeholder="9876543210" />
           </Field>
           {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
-          <Btn small style={{ marginTop: 12 }} onClick={savePhone} disabled={saving}>{saving ? "Saving…" : "Save number"}</Btn>
+          <Btn small style={{ marginTop: 12 }} onClick={savePhone} loadingText="Saving…">Save number</Btn>
         </>
       ) : (
         <>
@@ -1316,6 +1316,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
   const [deliveryNote, setDeliveryNote] = useState("");
   const [leaveAtDoor, setLeaveAtDoor] = useState(false);
   const [uncheckedItems, setUncheckedItems] = useState(new Set()); // items the customer has unchecked (default: all checked)
+  const [placingCod, setPlacingCod] = useState(false);
   const [stage, setStage] = useState("build"); // build -> payment -> done
   const [draftOrder, setDraftOrder] = useState(null);
   const [placed, setPlaced] = useState(null);
@@ -1404,7 +1405,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
       setDraftOrder(draft);
       setStage("payment");
     } else if (config.codEnabled) {
-      finalizeOrder(draft, "CONFIRMED", "cod");
+      return finalizeOrder(draft, "CONFIRMED", "cod");
     }
   };
 
@@ -1463,11 +1464,20 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
               </div>
             </div>
           </button>
-          <button onClick={() => finalizeOrder(draftOrder, "CONFIRMED", "cod")} className="session-card" style={{ textAlign: "left" }}>
+          <button
+            onClick={async () => {
+              if (placingCod) return;
+              setPlacingCod(true);
+              try { await finalizeOrder(draftOrder, "CONFIRMED", "cod"); } finally { setPlacingCod(false); }
+            }}
+            disabled={placingCod}
+            className="session-card"
+            style={{ textAlign: "left", opacity: placingCod ? 0.6 : 1, cursor: placingCod ? "not-allowed" : "pointer" }}
+          >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Banknote size={20} color="var(--leaf)" />
               <div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Cash on Delivery</div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>{placingCod ? "Placing order…" : "Cash on Delivery"}</div>
                 <div style={{ fontSize: 13, color: "var(--muted)" }}>Pay in cash when your order arrives</div>
               </div>
             </div>
@@ -2159,8 +2169,8 @@ function GalleryView({ myName, dogs, gallery, setGallery, config }) {
             <input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Goku loved the chicken and pumpkin bowl!" disabled={uploading} />
           </Field>
           {warning && <p style={{ color: "var(--clay)", fontSize: 12.5, marginTop: 10 }}>{warning}</p>}
-          <Btn full style={{ marginTop: 14 }} onClick={uploadPhoto} disabled={!draftPhoto || uploading}>
-            {uploading ? "Uploading…" : "Upload photo"}
+          <Btn full style={{ marginTop: 14 }} onClick={uploadPhoto} disabled={!draftPhoto} loadingText="Uploading…">
+            Upload photo
           </Btn>
           {justSubmitted && (
             <div style={{ marginTop: 12 }}>
@@ -2938,13 +2948,13 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
 
   const addChecklistItem = () => {
     const next = [...(config.mealChecklist || []), { id: uid("check_"), text: "" }];
-    updateIdentityNow({ mealChecklist: next });
+    return updateIdentityNow({ mealChecklist: next });
   };
   const updateChecklistItemLocal = (id, text) => {
     setConfig({ ...config, mealChecklist: config.mealChecklist.map((i) => (i.id === id ? { ...i, text } : i)) });
   };
   const removeChecklistItem = (id) => {
-    updateIdentityNow({ mealChecklist: config.mealChecklist.filter((i) => i.id !== id) });
+    return updateIdentityNow({ mealChecklist: config.mealChecklist.filter((i) => i.id !== id) });
   };
 
   const cancelToday = async (key) => { const next = [...cancelledSlots, { date: todayStr(), session: key }]; setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Cancelled today's ${config.sessions[key].label} serving`); };
@@ -3198,22 +3208,23 @@ function AdminLocations({ locations, setLocations, logAudit }) {
     if (!form.name.trim() || Number.isNaN(lat) || Number.isNaN(lng) || form.tiers.length === 0) return;
     const tiers = form.tiers.map((t) => ({ maxKm: Number(t.maxKm), fee: Number(t.fee) || 0 })).sort((a, b) => a.maxKm - b.maxKm);
     const next = [...locations, { id: uid("loc_"), name: form.name.trim(), lat, lng, tiers, active: true }];
-    save(next);
+    const result = save(next);
     logAudit(`Added service area "${form.name.trim()}" with ${tiers.length} distance tier(s), up to ${tiers[tiers.length - 1].maxKm} km`);
     setForm({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
+    return result;
   };
   const updateLoc = (id, patch) => save(locations.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const removeLoc = (id) => save(locations.filter((l) => l.id !== id));
 
   const updateLocTier = (locId, tierIdx, patch) => {
-    save(locations.map((l) => {
+    return save(locations.map((l) => {
       if (l.id !== locId) return l;
       const tiers = getTiers(l).map((t, i) => (i === tierIdx ? { ...t, ...patch } : t));
       return { ...l, tiers, radiusKm: undefined, deliveryFee: undefined };
     }));
   };
   const addLocTier = (locId) => {
-    save(locations.map((l) => {
+    return save(locations.map((l) => {
       if (l.id !== locId) return l;
       const tiers = getTiers(l);
       const lastMax = tiers.length ? tiers[tiers.length - 1].maxKm : 0;
@@ -3221,7 +3232,7 @@ function AdminLocations({ locations, setLocations, logAudit }) {
     }));
   };
   const removeLocTier = (locId, tierIdx) => {
-    save(locations.map((l) => {
+    return save(locations.map((l) => {
       if (l.id !== locId) return l;
       const tiers = getTiers(l).filter((_, i) => i !== tierIdx);
       return { ...l, tiers: tiers.length ? tiers : getTiers(l), radiusKm: undefined, deliveryFee: undefined };
@@ -3522,8 +3533,8 @@ function AdminPayments({ qrCode, setQrCode, config, setConfig, logAudit }) {
 function AdminFAQ({ faqs, setFaqs, logAudit }) {
   const save = async (next) => { setFaqs(next); await persist(K.faqs, next); };
   const update = (id, patch) => save(faqs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
-  const remove = (id) => { save(faqs.filter((f) => f.id !== id)); logAudit("Removed an FAQ entry"); };
-  const add = () => { save([...faqs, { id: uid("faq_"), q: "", a: "" }]); };
+  const remove = (id) => { const r = save(faqs.filter((f) => f.id !== id)); logAudit("Removed an FAQ entry"); return r; };
+  const add = () => save([...faqs, { id: uid("faq_"), q: "", a: "" }]);
 
   return (
     <div>
@@ -3554,9 +3565,9 @@ function AdminGallery({ gallery, setGallery, config, setConfig, logAudit }) {
   const pending = gallery.filter((p) => p.status === "pending").sort((a, b) => a.createdAt - b.createdAt);
   const reviewed = gallery.filter((p) => p.status !== "pending").sort((a, b) => b.createdAt - a.createdAt);
 
-  const approve = (p) => { save(gallery.map((g) => (g.id === p.id ? { ...g, status: "approved", reviewedAt: Date.now() } : g))); logAudit(`Approved a gallery photo from ${p.customerName}`); };
-  const reject = (p) => { save(gallery.map((g) => (g.id === p.id ? { ...g, status: "rejected", reviewedAt: Date.now() } : g))); logAudit(`Rejected a gallery photo from ${p.customerName}`); };
-  const remove = (p) => { save(gallery.filter((g) => g.id !== p.id)); logAudit(`Deleted a gallery photo from ${p.customerName}`); };
+  const approve = (p) => { const r = save(gallery.map((g) => (g.id === p.id ? { ...g, status: "approved", reviewedAt: Date.now() } : g))); logAudit(`Approved a gallery photo from ${p.customerName}`); return r; };
+  const reject = (p) => { const r = save(gallery.map((g) => (g.id === p.id ? { ...g, status: "rejected", reviewedAt: Date.now() } : g))); logAudit(`Rejected a gallery photo from ${p.customerName}`); return r; };
+  const remove = (p) => { const r = save(gallery.filter((g) => g.id !== p.id)); logAudit(`Deleted a gallery photo from ${p.customerName}`); return r; };
 
   const toggleUploads = async () => {
     const next = { ...config, galleryUploadEnabled: !config.galleryUploadEnabled };
@@ -3795,7 +3806,7 @@ function AdminData({ orders, dogs, audit, logAudit }) {
         })()}
       </InfoNote>
       <div style={{ marginTop: 10, marginBottom: 14 }}>
-        <Btn small variant="ghost" onClick={testConnection} disabled={testing}><RefreshCcw size={13} /> {testing ? "Testing…" : "Test connection"}</Btn>
+        <Btn small variant="ghost" onClick={testConnection} loadingText={<><RefreshCcw size={13} /> Testing…</>}><RefreshCcw size={13} /> Test connection</Btn>
         {testResult && (
           <p style={{ fontSize: 12.5, marginTop: 8, color: testResult.ok === false ? "var(--clay)" : testResult.ok ? "var(--leaf)" : "var(--muted)" }}>
             {testResult.message}
