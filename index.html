@@ -256,6 +256,7 @@ const RefreshCcw = (p) => <Glyph e="↻" {...p} />;
 const ImageIcon = (p) => <Glyph e="🖼" {...p} />;
 const CalendarDays = (p) => <Glyph e="📅" {...p} />;
 const Banknote = (p) => <Glyph e="💵" {...p} />;
+const Link2 = (p) => <Glyph e="🔗" {...p} />;
 
 
 /* ============================================================================
@@ -439,6 +440,7 @@ const SEED_CONFIG = {
   aboutUs: "We're a small kitchen cooking fresh, home-style meals for dogs — portioned by weight, breed and activity level, and made to order rather than batch-cooked and stored.",
   logoDataUrl: "",
   codEnabled: false,
+  autoPrintOnConfirm: false,
   mealChecklist: [{ id: "default_1", text: "A pinch of salt, turmeric and ghee will be added." }],
   orderingPaused: false,
   orderingPausedMessage: "We're not taking new orders right now. Please check back soon.",
@@ -657,12 +659,13 @@ function Pill({ children, tone = "default" }) {
   );
 }
 
-function Btn({ children, onClick, variant = "primary", disabled, style, small, full }) {
+function Btn({ children, onClick, variant = "primary", disabled, style, small, full, loadingText }) {
+  const [busy, setBusy] = useState(false);
   const base = {
-    fontFamily: "var(--font-body)", fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily: "var(--font-body)", fontWeight: 600, cursor: (disabled || busy) ? "not-allowed" : "pointer",
     border: "none", borderRadius: 980, padding: small ? "7px 14px" : "11px 20px",
     fontSize: small ? 13 : 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-    transition: "transform 0.12s ease, opacity 0.12s ease, background 0.15s ease", opacity: disabled ? 0.4 : 1,
+    transition: "transform 0.12s ease, opacity 0.12s ease, background 0.15s ease", opacity: (disabled || busy) ? 0.55 : 1,
     width: full ? "100%" : undefined,
   };
   const variants = {
@@ -672,16 +675,29 @@ function Btn({ children, onClick, variant = "primary", disabled, style, small, f
     danger: { background: "var(--clay)", color: "#fff" },
     outline: { background: "transparent", color: "var(--ink)", border: "1.5px solid var(--ring-strong)" },
   };
+  // If the handler is async (returns a promise), the button disables
+  // itself and shows a loading label until it settles, so a slow network
+  // round trip can't be mistaken for "nothing happened" and tapped again
+  // mid-flight. Handlers that aren't async (plain state toggles, etc.)
+  // behave exactly as before -- there's nothing to wait on.
+  const handleClick = (e) => {
+    if (disabled || busy || !onClick) return;
+    const result = onClick(e);
+    if (result && typeof result.then === "function") {
+      setBusy(true);
+      result.finally(() => setBusy(false));
+    }
+  };
   return (
     <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
+      onClick={handleClick}
+      disabled={disabled || busy}
       style={{ ...base, ...variants[variant], ...style }}
-      onMouseDown={(e) => { if (!disabled) e.currentTarget.style.transform = "scale(0.97)"; }}
+      onMouseDown={(e) => { if (!disabled && !busy) e.currentTarget.style.transform = "scale(0.97)"; }}
       onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
     >
-      {children}
+      {busy ? (loadingText || "Loading…") : children}
     </button>
   );
 }
@@ -1580,13 +1596,16 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                         {isSel ? (
                           <>
-                            {ing.quantityAdjustable ? (
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <button onClick={() => setCustomQty({ ...customQty, [ing.id]: Math.max(ing.min, (customQty[ing.id] ?? ing.default) - 1) })} className="stepper-btn"><Minus size={13} /></button>
-                                <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, width: 18, textAlign: "center" }}>{customQty[ing.id] ?? ing.default}</span>
-                                <button onClick={() => setCustomQty({ ...customQty, [ing.id]: Math.min(ing.max, (customQty[ing.id] ?? ing.default) + 1) })} className="stepper-btn"><Plus size={13} /></button>
-                              </div>
-                            ) : (
+                            {ing.quantityAdjustable ? (() => {
+                              const step = ing.unit === "count" ? 1 : 5;
+                              return (
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <button onClick={() => setCustomQty({ ...customQty, [ing.id]: Math.max(ing.min, (customQty[ing.id] ?? ing.default) - step) })} className="stepper-btn"><Minus size={13} /></button>
+                                  <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, width: 18, textAlign: "center" }}>{customQty[ing.id] ?? ing.default}</span>
+                                  <button onClick={() => setCustomQty({ ...customQty, [ing.id]: Math.min(ing.max, (customQty[ing.id] ?? ing.default) + step) })} className="stepper-btn"><Plus size={13} /></button>
+                                </div>
+                              );
+                            })() : (
                               <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700 }}>{qty} {ing.unit}</span>
                             )}
                             <span style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", minWidth: 44, textAlign: "right" }}>{rupee(subtotal)}</span>
@@ -1772,6 +1791,37 @@ function InvoiceModal({ order, config, onClose }) {
   );
 }
 
+// Automatically opens the print dialog for one order's invoice, without
+// needing InvoiceModal open on screen -- used for "auto-print on confirm".
+// Browsers do not allow a webpage to silently send a print job to a
+// specific printer without a person confirming a system dialog; there is
+// no client-side way around that, by design (it'd otherwise let any page
+// print to your printer without asking). This gets you as close as a
+// browser allows: the print dialog opens on its own the moment an order
+// is confirmed, with that order's invoice already loaded and ready --
+// whoever's at the till still needs to click "Print" in that dialog.
+function SilentPrintTrigger({ order, config, onDone }) {
+  const [portalEl] = useState(() => {
+    let el = document.getElementById("invoice-print-portal");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "invoice-print-portal";
+      document.body.appendChild(el);
+    }
+    return el;
+  });
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      window.print();
+      onDone?.();
+    }, 250); // give the portal content a moment to actually paint first
+    return () => clearTimeout(t);
+  }, []);
+
+  return createPortal(<InvoiceContent order={order} config={config} />, portalEl);
+}
+
 /* ============================================================================
    CUSTOMER: My orders
    ========================================================================= */
@@ -1876,6 +1926,60 @@ function MyOrdersView({ myName, orders, config, qrCode }) {
 /* ============================================================================
    CUSTOMER: Contact us
    ========================================================================= */
+
+function TrackOrderView({ orderId, orders, config }) {
+  const order = orders.find((o) => o.id === orderId);
+  const steps = ["CONFIRMED", "PREPARING", "COOKED", "PACKED", "OUT_FOR_DELIVERY", "DELIVERED"];
+
+  return (
+    <Shell theme="light">
+      <div style={{ maxWidth: 480, margin: "60px auto", padding: "0 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+          {config.logoDataUrl ? (
+            <img src={config.logoDataUrl} alt="" style={{ width: 36, height: 36, borderRadius: 10, objectFit: "cover" }} />
+          ) : (
+            <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}><Dog size={18} color="#fff" /></div>
+          )}
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 }}>{config.serviceName}</div>
+        </div>
+
+        {!order ? (
+          <Card><p style={{ margin: 0 }}>We couldn&apos;t find an order with this tracking link. Double-check the link, or contact us if you think this is a mistake.</p></Card>
+        ) : (
+          <Card>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Order for</div>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19, marginBottom: 4 }}>{order.dogSnapshot.name}&apos;s meal</div>
+            <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 20 }}>{fmtDateLabel(order.date)} &middot; {config.sessions?.[order.session]?.label || order.session}</div>
+
+            {order.status === "CANCELLED" ? (
+              <Pill tone="bad">Cancelled</Pill>
+            ) : order.status === "PENDING_PAYMENT" ? (
+              <Pill tone="warn">Awaiting payment confirmation</Pill>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {steps.map((s) => {
+                  const reached = steps.indexOf(order.status) >= steps.indexOf(s);
+                  return (
+                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 20, height: 20, borderRadius: "50%", background: reached ? "var(--leaf)" : "var(--surface-muted)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        {reached && <Check size={12} color="#fff" />}
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: order.status === s ? 700 : 400, color: reached ? "var(--ink)" : "var(--muted)" }}>{STATUS_LABEL[s]}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px dashed var(--ring-strong)", fontSize: 13.5, color: "var(--muted)" }}>
+              Total: <b style={{ color: "var(--ink)" }}>{rupee(order.totalPrice)}</b>{order.paymentMethod === "cod" && <> &middot; Cash on Delivery</>}
+            </div>
+          </Card>
+        )}
+      </div>
+    </Shell>
+  );
+}
 
 function ContactView({ config }) {
   const hasEmail = !!config.contactEmail;
@@ -2073,6 +2177,41 @@ function GalleryView({ myName, dogs, gallery, setGallery, config }) {
    ADMIN: Dashboard
    ========================================================================= */
 
+function IngredientsNeededModal({ date, session, orders, config, onClose }) {
+  const relevant = orders.filter((o) => o.date === date && o.session === session && o.status !== "CANCELLED");
+  const totals = {};
+  relevant.forEach((o) => {
+    (o.ingredients || []).forEach((ing) => {
+      const k = `${ing.name}\u0002${ing.unit}`;
+      if (!totals[k]) totals[k] = { name: ing.name, unit: ing.unit, qty: 0 };
+      totals[k].qty += ing.qty;
+    });
+  });
+  const rows = Object.values(totals).sort((a, b) => b.qty - a.qty);
+
+  return (
+    <Modal onCancel={onClose} maxWidth={420}>
+      <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Ingredients needed</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 16 }}>
+        {fmtDateLabel(date)} &middot; {config.sessions?.[session]?.label || session} &middot; across {relevant.length} order{relevant.length === 1 ? "" : "s"}
+      </div>
+      {rows.length === 0 ? (
+        <p style={{ fontSize: 14, color: "var(--muted)", margin: 0 }}>No orders booked into this slot yet.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "50vh", overflowY: "auto" }}>
+          {rows.map((r) => (
+            <div key={r.name + r.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--ring)" }}>
+              <span style={{ fontSize: 14 }}>{r.name}</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 14 }}>{Math.round(r.qty * 10) / 10} {r.unit}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <Btn full variant="ghost" style={{ marginTop: 18 }} onClick={onClose}>Close</Btn>
+    </Modal>
+  );
+}
+
 function nextServingWindow(config, orders) {
   const today = todayStr();
   // First: is there an earlier session (today or before) that still has
@@ -2120,6 +2259,7 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
   const [newCustomersToday, setNewCustomersToday] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [dateIdx, setDateIdx] = useState(0);
+  const [showIngredientsNeeded, setShowIngredientsNeeded] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -2184,7 +2324,7 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <SectionTitle eyebrow="Admin" title="Today's operations" />
-        <Btn small variant="ghost" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={13} /> {refreshing ? "Refreshing…" : "Refresh"}</Btn>
+        <Btn small variant="ghost" onClick={handleRefresh} loadingText={<><RefreshCw size={13} /> Refreshing…</>}><RefreshCw size={13} /> Refresh</Btn>
       </div>
       {config.orderingPaused && (
         <Card style={{ marginBottom: 16, background: "var(--tone-bad-bg)", border: "none" }}>
@@ -2216,8 +2356,14 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
           </div>
         </div>
         <Pill>{nextCount} booked</Pill>
-        <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" }}>View orders &rarr;</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={(e) => { e.stopPropagation(); setShowIngredientsNeeded(true); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: "var(--turmeric)", fontFamily: "var(--font-mono)", padding: 0 }}>Ingredients needed</button>
+          <span style={{ fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" }}>View orders &rarr;</span>
+        </div>
       </Card>
+      {showIngredientsNeeded && (
+        <IngredientsNeededModal date={next.date} session={next.session} orders={orders} config={config} onClose={() => setShowIngredientsNeeded(false)} />
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {dashDates.map((d, i) => (
@@ -2391,6 +2537,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
   }, [recentOrders, filters]);
 
   const confirmedTotal = useMemo(() => filtered.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0), [filtered]);
+  const [autoPrintOrder, setAutoPrintOrder] = useState(null);
 
   const updateStatus = async (order, newStatus) => {
     const next = orders.map((o) => (o.id === order.id
@@ -2399,6 +2546,15 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
     setOrders(next);
     await persist(K.orders, next);
     logAudit(`Order for ${order.dogSnapshot.name} (${order.customerName}) moved to ${STATUS_LABEL[newStatus]}`);
+    if (newStatus === "CONFIRMED" && config.autoPrintOnConfirm) {
+      setAutoPrintOrder({ ...order, status: newStatus });
+    }
+  };
+
+  const copyTrackingLink = async (order) => {
+    const url = `${window.location.origin}${window.location.pathname}?order=${order.id}`;
+    await navigator.clipboard.writeText(url);
+    await new Promise((r) => setTimeout(r, 900)); // hold the "Copied!" confirmation long enough to actually notice
   };
 
   if (recentOrders.length === 0) return <div><SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." /><Card><p style={{ margin: 0 }}>No orders in this range yet.</p></Card></div>;
@@ -2406,10 +2562,11 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
   return (
     <div>
       {viewingInvoice && <InvoiceModal order={viewingInvoice} config={config} onClose={() => setViewingInvoice(null)} />}
+      {autoPrintOrder && <SilentPrintTrigger order={autoPrintOrder} config={config} onDone={() => setAutoPrintOrder(null)} />}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." />
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn small variant="ghost" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={13} /> {refreshing ? "Refreshing…" : "Refresh"}</Btn>
+          <Btn small variant="ghost" onClick={handleRefresh} loadingText={<><RefreshCw size={13} /> Refreshing…</>}><RefreshCw size={13} /> Refresh</Btn>
           <Btn small variant={activeFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
             <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
           </Btn>
@@ -2537,6 +2694,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                               <Btn small variant="accent" onClick={() => updateStatus(o, "CONFIRMED")}><Check size={13} /> Confirm payment received</Btn>
                               <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}><Ban size={13} /> Reject / cancel</Btn>
                               <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
+                              <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
                             </div>
                           ) : o.status !== "CANCELLED" ? (
                             <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
@@ -2545,10 +2703,12 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                               ))}
                               <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}><Ban size={13} /> Cancel</Btn>
                               <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
+                              <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
                             </div>
                           ) : (
                             <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                               <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
+                              <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
                             </div>
                           )}
                         </td>
@@ -3295,6 +3455,12 @@ function AdminPayments({ qrCode, setQrCode, config, setConfig, logAudit }) {
     await persist(K.config, next);
     logAudit(next.codEnabled ? "Enabled Cash on Delivery" : "Disabled Cash on Delivery");
   };
+  const toggleAutoPrint = async () => {
+    const next = { ...config, autoPrintOnConfirm: !config.autoPrintOnConfirm };
+    setConfig(next);
+    await persist(K.config, next);
+    logAudit(next.autoPrintOnConfirm ? "Enabled auto-print on confirm" : "Disabled auto-print on confirm");
+  };
 
   return (
     <div>
@@ -3310,6 +3476,19 @@ function AdminPayments({ qrCode, setQrCode, config, setConfig, logAudit }) {
         </p>
         <Btn small variant={config.codEnabled ? "danger" : "accent"} onClick={toggleCod}>
           {config.codEnabled ? "Disable Cash on Delivery" : "Enable Cash on Delivery"}
+        </Btn>
+      </Card>
+
+      <Card style={{ marginBottom: 16, maxWidth: 420 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Auto-print on confirm</div>
+          <Pill tone={config.autoPrintOnConfirm ? "good" : "bad"}>{config.autoPrintOnConfirm ? "Enabled" : "Disabled"}</Pill>
+        </div>
+        <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>
+          When enabled, confirming an order automatically opens the print dialog with that order's invoice ready to go. One honest limitation: browsers don't allow a webpage to silently send a print job to a printer without a person confirming it -- there's no way around that, by design. This gets you as close as possible: the dialog opens itself, but you'll still need to click "Print" in it each time.
+        </p>
+        <Btn small variant={config.autoPrintOnConfirm ? "danger" : "accent"} onClick={toggleAutoPrint}>
+          {config.autoPrintOnConfirm ? "Disable auto-print" : "Enable auto-print"}
         </Btn>
       </Card>
 
@@ -3791,8 +3970,8 @@ const CUSTOMER_TABS = [
   { id: "dogs", label: "My Dogs", icon: PawPrint },
   { id: "order", label: "Order Food", icon: Dog },
   { id: "myorders", label: "My Orders", icon: ClipboardList },
-  { id: "contact", label: "Contact", icon: Phone },
   { id: "gallery", label: "Gallery", icon: ImageIcon },
+  { id: "contact", label: "Contact", icon: Phone },
 ];
 const ADMIN_TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -3812,8 +3991,10 @@ const ADMIN_TABS = [
 function App() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState("customer");
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const trackOrderId = urlParams.get("order");
   const [myName, setMyName] = useState("");
-  const [tab, setTab] = useState("order");
+  const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : "order"));
   const [pendingDogId, setPendingDogId] = useState(null);
   const [pendingOrderFilter, setPendingOrderFilter] = useState(null);
 
@@ -4072,6 +4253,11 @@ function App() {
 
   CURRENCY_SYMBOL = config.currencySymbol || "₹";
 
+  if (trackOrderId) {
+    if (loading) return <Shell theme={theme}><div style={{ padding: 60, textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--muted)" }}>Loading your order&hellip;</div></Shell>;
+    return <TrackOrderView orderId={trackOrderId} orders={orders} config={config} />;
+  }
+
   if (loading) return <Shell theme={theme}><div style={{ padding: 60, textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--muted)" }}>Setting the table&hellip;</div></Shell>;
 
   return (
@@ -4112,13 +4298,34 @@ function App() {
         </div>
       )}
       <div className="app-layout">
-        <nav className="app-nav">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return <button key={t.id} onClick={() => setTab(t.id)} className={"nav-btn" + (active ? " active" : "")}><Icon size={15} /> {t.label}</button>;
-          })}
-        </nav>
+        <div className="app-nav-wrap">
+          {role === "customer" ? (
+            <>
+              <nav className="app-nav app-nav-primary">
+                {CUSTOMER_TABS.filter((t) => ["dogs", "order", "myorders"].includes(t.id)).map((t) => {
+                  const Icon = t.icon;
+                  const active = tab === t.id;
+                  return <button key={t.id} onClick={() => setTab(t.id)} className={"nav-btn" + (active ? " active" : "")}><Icon size={15} /> {t.label}</button>;
+                })}
+              </nav>
+              <nav className="app-nav app-nav-secondary">
+                {CUSTOMER_TABS.filter((t) => ["gallery", "contact"].includes(t.id)).map((t) => {
+                  const Icon = t.icon;
+                  const active = tab === t.id;
+                  return <button key={t.id} onClick={() => setTab(t.id)} className={"nav-btn" + (active ? " active" : "")}><Icon size={15} /> {t.label}</button>;
+                })}
+              </nav>
+            </>
+          ) : (
+            <nav className="app-nav">
+              {tabs.map((t) => {
+                const Icon = t.icon;
+                const active = tab === t.id;
+                return <button key={t.id} onClick={() => setTab(t.id)} className={"nav-btn" + (active ? " active" : "")}><Icon size={15} /> {t.label}</button>;
+              })}
+            </nav>
+          )}
+        </div>
         <main className="app-main">
           {role === "customer" && tab === "dogs" && <DogsView dogs={dogs} setDogs={setDogs} breeds={breeds} myName={myName} onContinue={goToOrderWithDog} />}
           {role === "customer" && tab === "order" && (
@@ -4303,7 +4510,8 @@ function Shell({ children, theme }) {
         .icon-btn { border: 1.5px solid var(--ring-strong); background: var(--surface); color: var(--ink); border-radius: 980px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 
         .app-layout { display: flex; gap: 26px; max-width: 1100px; margin: 0 auto; padding: 22px 24px 56px; }
-        .app-nav { width: 192px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; position: sticky; top: 88px; align-self: flex-start; }
+        .app-nav-wrap { width: 192px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; position: sticky; top: 88px; align-self: flex-start; }
+        .app-nav { display: flex; flex-direction: column; gap: 3px; }
         .nav-btn { display: flex; align-items: center; gap: 9px; padding: 10px 13px; border-radius: 12px; border: none; cursor: pointer; text-align: left; font-size: 14px; font-weight: 500; background: transparent; color: var(--ink); }
         .nav-btn.active { background: var(--ink); color: var(--btn-primary-fg); font-weight: 700; }
         .app-main { flex: 1; min-width: 0; }
@@ -4333,8 +4541,17 @@ function Shell({ children, theme }) {
           .app-header-inner { padding: 11px 16px; }
           .app-brand-tagline { display: none; }
           .app-layout { flex-direction: column; padding: 14px 14px 40px; gap: 14px; }
-          .app-nav { width: 100%; flex-direction: row; overflow-x: auto; gap: 6px; position: static; padding-bottom: 4px; -ms-overflow-style: none; scrollbar-width: none; }
-          .app-nav::-webkit-scrollbar { display: none; }
+          .app-nav-wrap { width: 100%; position: static; gap: 0; }
+          .app-nav-secondary, .app-nav:not(.app-nav-primary):not(.app-nav-secondary) { width: 100%; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; -ms-overflow-style: none; scrollbar-width: none; }
+          .app-nav-secondary::-webkit-scrollbar, .app-nav:not(.app-nav-primary):not(.app-nav-secondary)::-webkit-scrollbar { display: none; }
+          .app-nav-primary {
+            position: fixed; bottom: 0; left: 0; right: 0; flex-direction: row;
+            background: var(--surface); border-top: 1px solid var(--ring);
+            padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+            z-index: 60; gap: 4px; box-shadow: 0 -6px 20px -10px rgba(0,0,0,0.15);
+          }
+          .app-nav-primary .nav-btn { flex: 1; flex-direction: column; font-size: 11px; padding: 7px 4px; gap: 3px; white-space: nowrap; }
+          .app-main { padding-bottom: 74px; }
           .nav-btn { white-space: nowrap; flex-shrink: 0; padding: 9px 12px; }
           .responsive-grid { grid-template-columns: 1fr 1fr; }
           .session-grid { grid-template-columns: 1fr; }
