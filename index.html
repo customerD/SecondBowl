@@ -168,6 +168,7 @@ window.storage = {
    bare JSX text don't interpret \u escapes the way JS string literals do.
    ------------------------------------------------------------------------- */
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const { createPortal } = ReactDOM;
 
 function Glyph({ e, size = 15, color, style }) {
   return (
@@ -1629,8 +1630,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
    Shared invoice (viewable by customers, printable by admin)
    ========================================================================= */
 
-function InvoiceModal({ order, config, onClose }) {
-  if (!order) return null;
+function InvoiceContent({ order, config }) {
   const currency = order.currencySymbol || config.currencySymbol || "₹";
   const money = (n) => `${currency}${Math.round(n).toLocaleString("en-IN")}`;
   const rateMoney = (n) => {
@@ -1639,83 +1639,107 @@ function InvoiceModal({ order, config, onClose }) {
     return `${currency}${str}`;
   };
   return (
-    <Modal onCancel={onClose} maxWidth={520}>
-      <div className="invoice-print">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {config.logoDataUrl ? (
-              <img src={config.logoDataUrl} alt="" style={{ width: 40, height: 40, borderRadius: 10, objectFit: "cover" }} />
-            ) : (
-              <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}><Dog size={18} color="#fff" /></div>
-            )}
-            <div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>{config.serviceName}</div>
-              {config.gstNumber && <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>GSTIN: {config.gstNumber}</div>}
-            </div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Invoice</div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>#{order.id.slice(-8)}</div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(order.createdAt)}</div>
+    <div className="invoice-print">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {config.logoDataUrl ? (
+            <img src={config.logoDataUrl} alt="" style={{ width: 40, height: 40, borderRadius: 10, objectFit: "cover" }} />
+          ) : (
+            <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}><Dog size={18} color="#fff" /></div>
+          )}
+          <div>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>{config.serviceName}</div>
+            {config.gstNumber && <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>GSTIN: {config.gstNumber}</div>}
           </div>
         </div>
-
-        <div className="form-grid-2" style={{ marginBottom: 16 }}>
-          <div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Billed to</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{order.customerName}</div>
-            {order.customerPhone && <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.customerPhone}</div>}
-            {order.customerAddress && <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.customerAddress.address}</div>}
-          </div>
-          <div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Order</div>
-            <div style={{ fontSize: 13 }}>{order.dogSnapshot.name}&apos;s meal</div>
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>{fmtDateLabel(order.date)} &middot; {config.sessions?.[order.session]?.label || order.session}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.paymentMethod === "cod" ? "Cash on Delivery" : "UPI / QR"} &middot; {STATUS_LABEL[order.status]}</div>
-          </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Invoice</div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>#{order.id.slice(-8)}</div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(order.createdAt)}</div>
         </div>
+      </div>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 14 }}>
-          <thead>
-            <tr style={{ borderBottom: "1.5px solid var(--ring-strong)", textAlign: "left" }}>
-              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>Item</th>
-              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Qty</th>
-              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Rate</th>
-              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Amount</th>
+      <div className="form-grid-2" style={{ marginBottom: 16 }}>
+        <div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Billed to</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{order.customerName}</div>
+          {order.customerPhone && <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.customerPhone}</div>}
+          {order.customerAddress && <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.customerAddress.address}</div>}
+        </div>
+        <div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Order</div>
+          <div style={{ fontSize: 13 }}>{order.dogSnapshot.name}&apos;s meal</div>
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>{fmtDateLabel(order.date)} &middot; {config.sessions?.[order.session]?.label || order.session}</div>
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.paymentMethod === "cod" ? "Cash on Delivery" : "UPI / QR"} &middot; {STATUS_LABEL[order.status]}</div>
+        </div>
+      </div>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 14 }}>
+        <thead>
+          <tr style={{ borderBottom: "1.5px solid var(--ring-strong)", textAlign: "left" }}>
+            <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>Item</th>
+            <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Qty</th>
+            <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Rate</th>
+            <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.ingredients.map((ing) => (
+            <tr key={ing.id} style={{ borderBottom: "1px solid var(--ring)" }}>
+              <td style={{ padding: "6px 4px" }}>{ing.name}</td>
+              <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{ing.qty} {ing.unit}</td>
+              <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{rateMoney(ing.pricePerUnit)}/{ing.unit}</td>
+              <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{money(ing.qty * ing.pricePerUnit)}</td>
             </tr>
-          </thead>
-          <tbody>
-            {order.ingredients.map((ing) => (
-              <tr key={ing.id} style={{ borderBottom: "1px solid var(--ring)" }}>
-                <td style={{ padding: "6px 4px" }}>{ing.name}</td>
-                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{ing.qty} {ing.unit}</td>
-                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{rateMoney(ing.pricePerUnit)}/{ing.unit}</td>
-                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{money(ing.qty * ing.pricePerUnit)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          ))}
+        </tbody>
+      </table>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginLeft: "auto", maxWidth: 220 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>Food</span><span>{money(order.foodTotal)}</span></div>
-          {order.deliveryFee > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>Delivery</span><span>{money(order.deliveryFee)}</span></div>}
-          {order.gstAmount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>GST ({order.gstPercent}%)</span><span>{money(order.gstAmount)}</span></div>}
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, marginTop: 6, paddingTop: 6, borderTop: "1.5px solid var(--ring-strong)" }}><span>Total</span><span>{money(order.totalPrice)}</span></div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginLeft: "auto", maxWidth: 220 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>Food</span><span>{money(order.foodTotal)}</span></div>
+        {order.deliveryFee > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>Delivery</span><span>{money(order.deliveryFee)}</span></div>}
+        {order.gstAmount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>GST ({order.gstPercent}%)</span><span>{money(order.gstAmount)}</span></div>}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, marginTop: 6, paddingTop: 6, borderTop: "1.5px solid var(--ring-strong)" }}><span>Total</span><span>{money(order.totalPrice)}</span></div>
+      </div>
+
+      {(order.leaveAtDoor || order.deliveryNote) && (
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", fontSize: 12.5, color: "var(--muted)" }}>
+          {order.leaveAtDoor && <div>Leave at the door</div>}
+          {order.deliveryNote && <div>{order.deliveryNote}</div>}
         </div>
+      )}
+    </div>
+  );
+}
 
-        {(order.leaveAtDoor || order.deliveryNote) && (
-          <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", fontSize: 12.5, color: "var(--muted)" }}>
-            {order.leaveAtDoor && <div>Leave at the door</div>}
-            {order.deliveryNote && <div>{order.deliveryNote}</div>}
-          </div>
-        )}
-      </div>
+function InvoiceModal({ order, config, onClose }) {
+  // A dedicated container living outside the app's own root, created once
+  // and reused. During print, CSS hides the entire app root and shows only
+  // this container -- so there's exactly one copy of the invoice on the
+  // page, and nothing else around it that could span multiple pages.
+  const [portalEl] = useState(() => {
+    let el = document.getElementById("invoice-print-portal");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "invoice-print-portal";
+      document.body.appendChild(el);
+    }
+    return el;
+  });
 
-      <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
-        <Btn full onClick={() => window.print()}><Download size={15} /> Print</Btn>
-        <Btn full variant="ghost" onClick={onClose}>Close</Btn>
-      </div>
-    </Modal>
+  if (!order) return null;
+
+  return (
+    <>
+      <Modal onCancel={onClose} maxWidth={520}>
+        <InvoiceContent order={order} config={config} />
+        <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+          <Btn full onClick={() => window.print()}><Download size={15} /> Print</Btn>
+          <Btn full variant="ghost" onClick={onClose}>Close</Btn>
+        </div>
+      </Modal>
+      {createPortal(<InvoiceContent order={order} config={config} />, portalEl)}
+    </>
   );
 }
 
@@ -4295,10 +4319,10 @@ function Shell({ children, theme }) {
           .app-header-inner { gap: 10px; }
         }
 
+        #invoice-print-portal { display: none; }
         @media print {
-          body * { visibility: hidden; }
-          .invoice-print, .invoice-print * { visibility: visible; }
-          .invoice-print { position: absolute; top: 0; left: 0; width: 100%; padding: 24px; color: #000; }
+          body > *:not(#invoice-print-portal) { display: none !important; }
+          #invoice-print-portal { display: block !important; padding: 24px; color: #000; }
         }
       `}</style>
       {children}
