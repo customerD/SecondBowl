@@ -275,6 +275,13 @@ async function saveCustomerAddresses(name, addresses) {
   await window.storage.set(customerKey(name), JSON.stringify(rec), true);
   return true;
 }
+async function saveCustomerPhone(name, phone) {
+  const rec = await getCustomerRecord(name);
+  if (!rec) return false;
+  rec.phone = phone;
+  await window.storage.set(customerKey(name), JSON.stringify(rec), true);
+  return true;
+}
 
 const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -408,6 +415,7 @@ const SEED_CONFIG = {
   currencySymbol: "₹",
   gstEnabled: false,
   gstPercent: 18,
+  gstNumber: "",
   galleryUploadEnabled: true,
   galleryFullMessage: "Our gallery is full. Mail us your pet photos to get featured on the gallery.",
   sessions: {
@@ -1162,6 +1170,87 @@ function AddressGate({ myName, locations, resolved, onResolved }) {
 }
 
 /* ============================================================================
+   CUSTOMER: Phone number -- required before ordering, re-confirmed each time
+   ========================================================================= */
+
+function PhoneGate({ myName, resolved, onResolved }) {
+  const [savedPhone, setSavedPhone] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftPhone, setDraftPhone] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const rec = await getCustomerRecord(myName);
+      const phone = rec?.phone || "";
+      setSavedPhone(phone);
+      setDraftPhone(phone);
+      setLoaded(true);
+      if (!phone) setEditing(true);
+    })();
+  }, [myName]);
+
+  const validatePhone = (p) => /^[0-9+\-\s()]{7,15}$/.test(p.trim());
+
+  const savePhone = async () => {
+    const cleaned = draftPhone.trim();
+    if (!validatePhone(cleaned)) { setError("Enter a valid phone number."); return; }
+    setSaving(true); setError("");
+    await saveCustomerPhone(myName, cleaned);
+    setSavedPhone(cleaned);
+    setEditing(false);
+    setSaving(false);
+    onResolved({ ok: false }); // require the explicit "this is correct" confirmation below, even right after saving
+  };
+
+  const confirmPhone = () => onResolved({ ok: true, phone: savedPhone });
+
+  if (!loaded) return null;
+
+  if (resolved?.ok && savedPhone) {
+    return (
+      <Card style={{ marginBottom: 16, background: "var(--tone-good-bg)", border: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, flexWrap: "wrap" }}>
+          <Phone size={16} />
+          We&apos;ll use <b>{savedPhone}</b> for this order.
+          <button onClick={() => { setEditing(true); onResolved({ ok: false }); }} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, textDecoration: "underline" }}>Not correct?</button>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <Phone size={17} color="var(--leaf)" />
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 }}>Contact number</div>
+      </div>
+      {editing ? (
+        <>
+          <p style={{ fontSize: 13.5, color: "var(--muted)", margin: "0 0 12px" }}>We&apos;ll use this number to reach you about your order.</p>
+          <Field label="Phone number">
+            <input style={inputStyle} value={draftPhone} onChange={(e) => setDraftPhone(e.target.value)} placeholder="9876543210" />
+          </Field>
+          {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
+          <Btn small style={{ marginTop: 12 }} onClick={savePhone} disabled={saving}>{saving ? "Saving…" : "Save number"}</Btn>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 14, marginBottom: 12 }}>Please double-check this is correct before placing your order:</p>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{savedPhone}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Btn small onClick={confirmPhone}><Check size={13} /> Yes, this is correct</Btn>
+            <Btn small variant="ghost" onClick={() => setEditing(true)}><Pencil size={13} /> Edit number</Btn>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/* ============================================================================
    CUSTOMER: Order food (meal builder → payment → confirmation)
    ========================================================================= */
 
@@ -1177,6 +1266,9 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
     return m;
   });
   const [locationResolved, setLocationResolved] = useState(null);
+  const [phoneResolved, setPhoneResolved] = useState({ ok: false });
+  const [deliveryNote, setDeliveryNote] = useState("");
+  const [leaveAtDoor, setLeaveAtDoor] = useState(false);
   const [uncheckedItems, setUncheckedItems] = useState(new Set()); // items the customer has unchecked (default: all checked)
   const [stage, setStage] = useState("build"); // build -> payment -> done
   const [draftOrder, setDraftOrder] = useState(null);
@@ -1249,6 +1341,9 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
       totalPrice: Math.round(total),
       currencySymbol: config.currencySymbol || "₹",
       mealChecklist: (config.mealChecklist || []).map((item) => ({ id: item.id, text: item.text, accepted: !uncheckedItems.has(item.id) })),
+      customerPhone: phoneResolved.phone || "",
+      leaveAtDoor,
+      deliveryNote: deliveryNote.trim(),
       createdAt: Date.now(),
     };
   };
@@ -1382,8 +1477,9 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
     <div>
       <SectionTitle eyebrow="Customer" title="Order food" />
       <AddressGate myName={myName} locations={locations} resolved={locationResolved} onResolved={setLocationResolved} />
+      <PhoneGate myName={myName} resolved={phoneResolved} onResolved={setPhoneResolved} />
 
-      {!locationResolved?.ok ? null : (
+      {!(locationResolved?.ok && phoneResolved.ok) ? null : (
         <>
           {bothFullToday && nextSlot && (
             <Card style={{ marginBottom: 16, background: "var(--tone-warn-bg)", border: "none" }}>
@@ -1498,6 +1594,17 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
                 </div>
               )}
 
+              <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1.5px dashed var(--ring-strong)" }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Delivery instructions</div>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 12 }}>
+                  <input type="checkbox" checked={leaveAtDoor} onChange={(e) => setLeaveAtDoor(e.target.checked)} style={{ width: 17, height: 17, accentColor: "var(--leaf)", flexShrink: 0 }} />
+                  <span style={{ fontSize: 14 }}>Leave at the door</span>
+                </label>
+                <Field label="Additional requests (optional)">
+                  <input style={inputStyle} value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Anything else we should know?" />
+                </Field>
+              </div>
+
               <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1.5px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--muted)" }}><span>Food</span><span>{rupee(foodTotal)}</span></div>
                 {deliveryFee > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--muted)" }}><span>Delivery{locationResolved?.name ? ` (${locationResolved.name})` : ""}</span><span>{rupee(deliveryFee)}</span></div>}
@@ -1519,18 +1626,109 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
 }
 
 /* ============================================================================
+   Shared invoice (viewable by customers, printable by admin)
+   ========================================================================= */
+
+function InvoiceModal({ order, config, onClose }) {
+  if (!order) return null;
+  const currency = order.currencySymbol || config.currencySymbol || "₹";
+  const money = (n) => `${currency}${Math.round(n).toLocaleString("en-IN")}`;
+  return (
+    <Modal onCancel={onClose} maxWidth={520}>
+      <div className="invoice-print">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {config.logoDataUrl ? (
+              <img src={config.logoDataUrl} alt="" style={{ width: 40, height: 40, borderRadius: 10, objectFit: "cover" }} />
+            ) : (
+              <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}><Dog size={18} color="#fff" /></div>
+            )}
+            <div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>{config.serviceName}</div>
+              {config.gstNumber && <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>GSTIN: {config.gstNumber}</div>}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Invoice</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>#{order.id.slice(-8)}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(order.createdAt)}</div>
+          </div>
+        </div>
+
+        <div className="form-grid-2" style={{ marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Billed to</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{order.customerName}</div>
+            {order.customerPhone && <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.customerPhone}</div>}
+            {order.customerAddress && <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.customerAddress.address}</div>}
+          </div>
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>Order</div>
+            <div style={{ fontSize: 13 }}>{order.dogSnapshot.name}&apos;s meal</div>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>{fmtDateLabel(order.date)} &middot; {config.sessions?.[order.session]?.label || order.session}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>{order.paymentMethod === "cod" ? "Cash on Delivery" : "UPI / QR"} &middot; {STATUS_LABEL[order.status]}</div>
+          </div>
+        </div>
+
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 14 }}>
+          <thead>
+            <tr style={{ borderBottom: "1.5px solid var(--ring-strong)", textAlign: "left" }}>
+              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>Item</th>
+              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Qty</th>
+              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Rate</th>
+              <th style={{ padding: "6px 4px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", textAlign: "right" }}>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {order.ingredients.map((ing) => (
+              <tr key={ing.id} style={{ borderBottom: "1px solid var(--ring)" }}>
+                <td style={{ padding: "6px 4px" }}>{ing.name}</td>
+                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{ing.qty} {ing.unit}</td>
+                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{money(ing.pricePerUnit)}/{ing.unit}</td>
+                <td style={{ padding: "6px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{money(ing.qty * ing.pricePerUnit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginLeft: "auto", maxWidth: 220 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>Food</span><span>{money(order.foodTotal)}</span></div>
+          {order.deliveryFee > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>Delivery</span><span>{money(order.deliveryFee)}</span></div>}
+          {order.gstAmount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>GST ({order.gstPercent}%)</span><span>{money(order.gstAmount)}</span></div>}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, marginTop: 6, paddingTop: 6, borderTop: "1.5px solid var(--ring-strong)" }}><span>Total</span><span>{money(order.totalPrice)}</span></div>
+        </div>
+
+        {(order.leaveAtDoor || order.deliveryNote) && (
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", fontSize: 12.5, color: "var(--muted)" }}>
+            {order.leaveAtDoor && <div>Leave at the door</div>}
+            {order.deliveryNote && <div>{order.deliveryNote}</div>}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+        <Btn full onClick={() => window.print()}><Download size={15} /> Print</Btn>
+        <Btn full variant="ghost" onClick={onClose}>Close</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================================
    CUSTOMER: My orders
    ========================================================================= */
 
 function MyOrdersView({ myName, orders, config, qrCode }) {
   const mine = orders.filter((o) => o.customerName === myName).sort((a, b) => b.createdAt - a.createdAt);
   const [viewingQrOrder, setViewingQrOrder] = useState(null);
+  const [viewingInvoice, setViewingInvoice] = useState(null);
   if (!myName) return <Card><p style={{ margin: 0 }}>Sign in up top to see your orders.</p></Card>;
   if (mine.length === 0) return <Card><p style={{ margin: 0 }}>No orders yet — place one from <b>Order Food</b>.</p></Card>;
 
   return (
     <div>
       <SectionTitle eyebrow="Customer" title="My orders" />
+      {viewingInvoice && <InvoiceModal order={viewingInvoice} config={config} onClose={() => setViewingInvoice(null)} />}
       {viewingQrOrder && (
         <Modal onCancel={() => setViewingQrOrder(null)} maxWidth={340}>
           <div style={{ textAlign: "center" }}>
@@ -1576,6 +1774,10 @@ function MyOrdersView({ myName, orders, config, qrCode }) {
                   <Btn small variant="outline" onClick={() => setViewingQrOrder(o)}><QrCode size={13} /> View payment QR again</Btn>
                 </div>
               )}
+
+              <div style={{ marginTop: 12 }}>
+                <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> View invoice</Btn>
+              </div>
 
               {!cancelled && !pending && (
                 <div className="timeline" style={{ marginTop: 18, marginBottom: 4 }}>
@@ -2082,6 +2284,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
   const [openId, setOpenId] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewingInvoice, setViewingInvoice] = useState(null);
   const handleRefresh = async () => { setRefreshing(true); await onRefresh?.(); setRefreshing(false); };
   const [filters, setFilters] = useState({
     orderSearch: "", customer: "", dog: "", session: "", date: "",
@@ -2144,6 +2347,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
 
   return (
     <div>
+      {viewingInvoice && <InvoiceModal order={viewingInvoice} config={config} onClose={() => setViewingInvoice(null)} />}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." />
         <div style={{ display: "flex", gap: 8 }}>
@@ -2235,7 +2439,9 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                         <td colSpan={8} style={{ padding: "14px 20px", background: "var(--surface-muted)", borderTop: "1px dashed var(--ring-strong)" }}>
                           <div className="form-grid-2">
                             <div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Dog</div>
+                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Customer</div>
+                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>{o.customerName}{o.customerPhone && <> &middot; {o.customerPhone}</>}</div>
+                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginTop: 14, marginBottom: 6 }}>Dog</div>
                               <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>{o.dogSnapshot.breed} &middot; {formatAge(o.dogSnapshot.ageMonths)} &middot; {o.dogSnapshot.weightKg} kg &middot; {ACTIVITY_LABEL[o.dogSnapshot.activity]} activity</div>
                               <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginTop: 14, marginBottom: 6 }}>Timing</div>
                               <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>
@@ -2272,13 +2478,19 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                             <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                               <Btn small variant="accent" onClick={() => updateStatus(o, "CONFIRMED")}><Check size={13} /> Confirm payment received</Btn>
                               <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}><Ban size={13} /> Reject / cancel</Btn>
+                              <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
                             </div>
-                          ) : o.status !== "CANCELLED" && (
+                          ) : o.status !== "CANCELLED" ? (
                             <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                               {STATUS_FLOW.map((s) => (
                                 <Btn key={s} small variant={o.status === s ? "primary" : "outline"} onClick={() => updateStatus(o, s)}>{STATUS_LABEL[s]}</Btn>
                               ))}
                               <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}><Ban size={13} /> Cancel</Btn>
+                              <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+                              <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
                             </div>
                           )}
                         </td>
@@ -2637,6 +2849,7 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
         <div className="form-grid-2">
           <Field label="Currency symbol"><input style={inputStyle} value={config.currencySymbol} onChange={(e) => updateIdentity({ currencySymbol: e.target.value })} onBlur={commitConfig} placeholder="₹" /></Field>
           <Field label="GST rate (%)"><input type="number" min={0} step="0.5" style={inputStyle} value={config.gstPercent} onChange={(e) => updateIdentity({ gstPercent: Number(e.target.value) })} onBlur={commitConfig} disabled={!config.gstEnabled} /></Field>
+          <Field label="GST number (GSTIN)"><input style={inputStyle} value={config.gstNumber} onChange={(e) => updateIdentity({ gstNumber: e.target.value })} onBlur={commitConfig} placeholder="22AAAAA0000A1Z5" disabled={!config.gstEnabled} /></Field>
         </div>
         <div style={{ marginTop: 14 }}>
           <Btn small variant={config.gstEnabled ? "accent" : "ghost"} onClick={() => updateIdentityNow({ gstEnabled: !config.gstEnabled })}>
@@ -4075,6 +4288,12 @@ function Shell({ children, theme }) {
         @media (max-width: 460px) {
           .responsive-grid { grid-template-columns: 1fr; }
           .app-header-inner { gap: 10px; }
+        }
+
+        @media print {
+          body * { visibility: hidden; }
+          .invoice-print, .invoice-print * { visibility: visible; }
+          .invoice-print { position: absolute; top: 0; left: 0; width: 100%; padding: 24px; color: #000; }
         }
       `}</style>
       {children}
