@@ -225,6 +225,7 @@ const Download = (p) => <Glyph e="⬇" {...p} />;
 const RefreshCcw = (p) => <Glyph e="↻" {...p} />;
 const ImageIcon = (p) => <Glyph e="🖼" {...p} />;
 const CalendarDays = (p) => <Glyph e="📅" {...p} />;
+const Banknote = (p) => <Glyph e="💵" {...p} />;
 
 
 /* ============================================================================
@@ -399,7 +400,9 @@ const SEED_CONFIG = {
   contactEmail: "",
   contactPhone: "",
   aboutUs: "We're a small kitchen cooking fresh, home-style meals for dogs — portioned by weight, breed and activity level, and made to order rather than batch-cooked and stored.",
-  mealNote: "A pinch of salt, turmeric and ghee will be added.",
+  logoDataUrl: "",
+  codEnabled: false,
+  mealChecklist: [{ id: "default_1", text: "A pinch of salt, turmeric and ghee will be added." }],
   orderingPaused: false,
   orderingPausedMessage: "We're not taking new orders right now. Please check back soon.",
   currencySymbol: "₹",
@@ -518,6 +521,18 @@ function bestFaqMatch(query, faqs) {
 }
 
 /* ---------------------------- Storage helpers ------------------------------ */
+
+// Merges freshly loaded config with defaults, and migrates any config
+// saved before mealChecklist existed (when there was only a single
+// mealNote string) into the new array shape, so nothing already
+// configured gets silently dropped.
+function mergeConfig(raw) {
+  const merged = { ...SEED_CONFIG, ...raw, sessions: { ...SEED_CONFIG.sessions, ...(raw.sessions || {}) } };
+  if (!Array.isArray(merged.mealChecklist) && raw.mealNote) {
+    merged.mealChecklist = [{ id: "migrated_1", text: raw.mealNote }];
+  }
+  return merged;
+}
 
 async function loadOrSeed(key, seed) {
   try {
@@ -1162,7 +1177,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
     return m;
   });
   const [locationResolved, setLocationResolved] = useState(null);
-  const [mealNoteAccepted, setMealNoteAccepted] = useState(true);
+  const [uncheckedItems, setUncheckedItems] = useState(new Set()); // items the customer has unchecked (default: all checked)
   const [stage, setStage] = useState("build"); // build -> payment -> done
   const [draftOrder, setDraftOrder] = useState(null);
   const [placed, setPlaced] = useState(null);
@@ -1233,21 +1248,27 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
       gstPercent: config.gstEnabled ? (config.gstPercent || 0) : 0,
       totalPrice: Math.round(total),
       currencySymbol: config.currencySymbol || "₹",
-      mealNote: config.mealNote || "",
-      mealNoteAccepted,
+      mealChecklist: (config.mealChecklist || []).map((item) => ({ id: item.id, text: item.text, accepted: !uncheckedItems.has(item.id) })),
       createdAt: Date.now(),
     };
   };
 
   const goToPayment = () => {
     const draft = buildDraft();
-    if (!draft || !qrCode) return;
-    setDraftOrder(draft);
-    setStage("payment");
+    if (!draft) return;
+    if (qrCode && config.codEnabled) {
+      setDraftOrder(draft);
+      setStage("choosePayment");
+    } else if (qrCode) {
+      setDraftOrder(draft);
+      setStage("payment");
+    } else if (config.codEnabled) {
+      finalizeOrder(draft, "CONFIRMED", "cod");
+    }
   };
 
-  const finalizeOrder = async (draft, status) => {
-    const order = { ...draft, status, paymentClaimedAt: status === "PENDING_PAYMENT" ? Date.now() : null };
+  const finalizeOrder = async (draft, status, paymentMethod = "upi") => {
+    const order = { ...draft, status, paymentMethod, paymentClaimedAt: status === "PENDING_PAYMENT" ? Date.now() : null };
     const next = [...orders, order];
     setOrders(next);
     await persist(K.orders, next);
@@ -1271,7 +1292,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
       </div>
     );
   }
-  if (!qrCode) {
+  if (!qrCode && !config.codEnabled) {
     return (
       <div>
         <SectionTitle eyebrow="Customer" title="Order food" />
@@ -1282,6 +1303,36 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
           </div>
           <p style={{ fontSize: 14, color: "var(--muted)", margin: 0 }}>Payment isn&apos;t set up yet, so orders can&apos;t be placed right now. Please check back soon.</p>
         </Card>
+      </div>
+    );
+  }
+
+  if (stage === "choosePayment" && draftOrder) {
+    return (
+      <div style={{ maxWidth: 440 }}>
+        <SectionTitle eyebrow="Customer" title="How would you like to pay?" />
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, marginBottom: 18 }}>{rupee(draftOrder.totalPrice)}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={() => setStage("payment")} className="session-card" style={{ textAlign: "left" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <QrCode size={20} color="var(--leaf)" />
+              <div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Pay online now</div>
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>Scan a QR code to pay via any UPI app</div>
+              </div>
+            </div>
+          </button>
+          <button onClick={() => finalizeOrder(draftOrder, "CONFIRMED", "cod")} className="session-card" style={{ textAlign: "left" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Banknote size={20} color="var(--leaf)" />
+              <div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Cash on Delivery</div>
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>Pay in cash when your order arrives</div>
+              </div>
+            </div>
+          </button>
+        </div>
+        <Btn full variant="ghost" style={{ marginTop: 14 }} onClick={() => { setStage("build"); setDraftOrder(null); }}>Back</Btn>
       </div>
     );
   }
@@ -1320,6 +1371,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
             {placed.dogSnapshot.name}&apos;s meal &middot; {fmtDateLabel(placed.date)} &middot; {config.sessions[placed.session].label} ({fmtTime(placed.servingTime)})
           </div>
           {pending && <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>Awaiting payment confirmation from our team.</p>}
+          {placed.paymentMethod === "cod" && <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>Have {rupee(placed.totalPrice)} ready in cash when your order arrives.</p>}
           <Btn onClick={goToOrders}>View my orders <ChevronRight size={15} /></Btn>
         </Card>
       </div>
@@ -1422,11 +1474,28 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
                 })}
               </div>
 
-              {config.mealNote && (
-                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginTop: 16, cursor: "pointer" }}>
-                  <input type="checkbox" checked={mealNoteAccepted} onChange={(e) => setMealNoteAccepted(e.target.checked)} style={{ width: 17, height: 17, marginTop: 2, accentColor: "var(--leaf)", flexShrink: 0 }} />
-                  <span style={{ fontSize: 13.5, color: "var(--muted)" }}>{config.mealNote}</span>
-                </label>
+              {(config.mealChecklist || []).length > 0 && (
+                <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {config.mealChecklist.map((item) => {
+                    const checked = !uncheckedItems.has(item.id);
+                    return (
+                      <label key={item.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                        <input
+                          type="checkbox" checked={checked}
+                          onChange={(e) => {
+                            setUncheckedItems((prev) => {
+                              const next = new Set(prev);
+                              e.target.checked ? next.delete(item.id) : next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          style={{ width: 17, height: 17, marginTop: 2, accentColor: "var(--leaf)", flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: 13.5, color: "var(--muted)" }}>{item.text}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               )}
 
               <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1.5px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1439,7 +1508,7 @@ function OrderFoodView({ myName, dogs, ingredients, breeds, engine, config, orde
                 </div>
               </div>
               <Btn onClick={goToPayment} full style={{ marginTop: 14 }} disabled={preview.length === 0}>
-                Continue to payment
+                {qrCode ? "Continue to payment" : "Place order (Cash on Delivery)"}
               </Btn>
             </Card>
           )}
@@ -1743,9 +1812,21 @@ function GalleryView({ myName, dogs, gallery, setGallery, config }) {
    ADMIN: Dashboard
    ========================================================================= */
 
-function nextServingWindow(config) {
-  const nowM = nowMin();
+function nextServingWindow(config, orders) {
   const today = todayStr();
+  // First: is there an earlier session (today or before) that still has
+  // orders that aren't done yet? If so, that's still "next up" in the
+  // sense that matters -- it hasn't actually been served, regardless of
+  // whether its scheduled time has technically passed.
+  const relevantDates = [...new Set((orders || []).map((o) => o.date))].filter((d) => d <= today).sort();
+  for (const date of relevantDates) {
+    for (const key of ["morning", "evening"]) {
+      const unfinished = (orders || []).some((o) => o.date === date && o.session === key && !["DELIVERED", "CANCELLED"].includes(o.status));
+      if (unfinished) return { date, session: key };
+    }
+  }
+  // Nothing outstanding -- fall back to the next upcoming slot by time.
+  const nowM = nowMin();
   for (const key of ["morning", "evening"]) {
     if (timeToMin(config.sessions[key].servingTime) >= nowM) return { date: today, session: key };
   }
@@ -1811,7 +1892,7 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
   const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
   const eveningMeals = mealsToday.filter((o) => o.session === "evening").length;
 
-  const next = nextServingWindow(config);
+  const next = nextServingWindow(config, orders);
   const nextCount = slotCount(next.date, next.session, orders);
 
   const activeToday = mealsToday;
@@ -2155,6 +2236,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                               <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>
                                 <div>Ordered: {fmtDateTime(o.createdAt)}</div>
                                 {o.deliveredAt ? <div>Delivered: {fmtDateTime(o.deliveredAt)}</div> : <div style={{ color: "var(--ring-strong)" }}>Not delivered yet</div>}
+                                <div>Payment: {o.paymentMethod === "cod" ? "Cash on Delivery" : "UPI / QR"}</div>
                               </div>
                             </div>
                             <div>
@@ -2399,6 +2481,36 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
     setConfig(next);
     await persist(K.config, next);
   };
+  const logoFileRef = useRef(null);
+  const [logoWarning, setLogoWarning] = useState("");
+  const onLogoFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (dataUrl.length > 1_000_000) {
+        setLogoWarning("That image is too large for a logo -- use a small square icon (usually well under 500KB).");
+        if (logoFileRef.current) logoFileRef.current.value = "";
+        return;
+      }
+      setLogoWarning("");
+      updateIdentityNow({ logoDataUrl: dataUrl });
+    };
+    reader.readAsDataURL(file);
+  };
+  const removeLogo = () => updateIdentityNow({ logoDataUrl: "" });
+
+  const addChecklistItem = () => {
+    const next = [...(config.mealChecklist || []), { id: uid("check_"), text: "" }];
+    updateIdentityNow({ mealChecklist: next });
+  };
+  const updateChecklistItemLocal = (id, text) => {
+    setConfig({ ...config, mealChecklist: config.mealChecklist.map((i) => (i.id === id ? { ...i, text } : i)) });
+  };
+  const removeChecklistItem = (id) => {
+    updateIdentityNow({ mealChecklist: config.mealChecklist.filter((i) => i.id !== id) });
+  };
 
   const cancelToday = async (key) => { const next = [...cancelledSlots, { date: todayStr(), session: key }]; setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Cancelled today's ${config.sessions[key].label} serving`); };
   const uncancelToday = async (key) => { const next = cancelledSlots.filter((c) => !(c.date === todayStr() && c.session === key)); setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Reinstated today's ${config.sessions[key].label} serving`); };
@@ -2490,6 +2602,17 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
           <Building2 size={17} color="var(--leaf)" />
           <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Business identity</div>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+          {config.logoDataUrl ? (
+            <img src={config.logoDataUrl} alt="Logo" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", border: "1px solid var(--ring)" }} />
+          ) : (
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: "var(--leaf)", display: "flex", alignItems: "center", justifyContent: "center" }}><Dog size={20} color="#fff" /></div>
+          )}
+          <Btn small variant="ghost" onClick={() => logoFileRef.current?.click()}><Upload size={13} /> {config.logoDataUrl ? "Replace logo" : "Upload logo"}</Btn>
+          {config.logoDataUrl && <Btn small variant="ghost" onClick={removeLogo}><Trash2 size={13} /> Remove</Btn>}
+          <input ref={logoFileRef} type="file" accept="image/*" onChange={onLogoFile} style={{ display: "none" }} />
+        </div>
+        {logoWarning && <p style={{ fontSize: 12, color: "var(--clay)", marginBottom: 12 }}>{logoWarning}</p>}
         <div className="form-grid-2">
           <Field label="Business name"><input style={inputStyle} value={config.serviceName} onChange={(e) => updateIdentity({ serviceName: e.target.value })} onBlur={commitConfig} /></Field>
           <Field label="Tagline"><input style={inputStyle} value={config.tagline} onChange={(e) => updateIdentity({ tagline: e.target.value })} onBlur={commitConfig} /></Field>
@@ -2519,11 +2642,23 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
       </Card>
 
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Meal builder note</div>
-        <Field label="Note shown as a checkbox while building a meal">
-          <input style={inputStyle} value={config.mealNote} onChange={(e) => updateIdentity({ mealNote: e.target.value })} onBlur={commitConfig} placeholder="A pinch of salt, turmeric and ghee will be added." />
-        </Field>
-        <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>Shown as a checked-by-default checkbox on the Order Food page, just above the total.</p>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Meal builder checklist</div>
+        <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>Shown as checked-by-default checkboxes on the Order Food page, just above the total. Add as many as you like.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {(config.mealChecklist || []).map((item) => (
+            <div key={item.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }} value={item.text}
+                onChange={(e) => updateChecklistItemLocal(item.id, e.target.value)}
+                onBlur={commitConfig}
+                placeholder="A pinch of salt, turmeric and ghee will be added."
+              />
+              <button onClick={() => removeChecklistItem(item.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 }}><Trash2 size={15} /></button>
+            </div>
+          ))}
+          {(config.mealChecklist || []).length === 0 && <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>No checklist items yet.</p>}
+        </div>
+        <Btn small variant="ghost" style={{ marginTop: 12 }} onClick={addChecklistItem}><Plus size={13} /> Add item</Btn>
       </Card>
 
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Default schedule &amp; today</div>
@@ -2829,7 +2964,7 @@ function AdminSchedule({ config, orders, cancelledSlots, setCancelledSlots, forc
    ADMIN: Payments (QR code upload)
    ========================================================================= */
 
-function AdminPayments({ qrCode, setQrCode, logAudit }) {
+function AdminPayments({ qrCode, setQrCode, config, setConfig, logAudit }) {
   const fileRef = useRef(null);
   const [warning, setWarning] = useState("");
   const [saving, setSaving] = useState(false);
@@ -2878,10 +3013,30 @@ function AdminPayments({ qrCode, setQrCode, logAudit }) {
   };
 
   const removeQr = async () => { setQrCode(""); await persist(K.qrCode, ""); logAudit("Removed the payment QR code"); };
+  const toggleCod = async () => {
+    const next = { ...config, codEnabled: !config.codEnabled };
+    setConfig(next);
+    await persist(K.config, next);
+    logAudit(next.codEnabled ? "Enabled Cash on Delivery" : "Disabled Cash on Delivery");
+  };
 
   return (
     <div>
-      <SectionTitle eyebrow="Admin" title="Payments" sub="Upload the QR code customers scan to pay. Customers can't place an order until one is set, and you confirm payment here in Orders before it moves to Confirmed." />
+      <SectionTitle eyebrow="Admin" title="Payments" sub="Set up how customers pay. If neither a QR code nor Cash on Delivery is enabled, customers can't place an order at all." />
+
+      <Card style={{ marginBottom: 16, maxWidth: 420 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Cash on Delivery</div>
+          <Pill tone={config.codEnabled ? "good" : "bad"}>{config.codEnabled ? "Enabled" : "Disabled"}</Pill>
+        </div>
+        <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>
+          When enabled, customers can choose to pay in cash at delivery instead of scanning the QR code. These orders skip the "awaiting payment" step and go straight to Confirmed, since there's nothing to verify upfront.
+        </p>
+        <Btn small variant={config.codEnabled ? "danger" : "accent"} onClick={toggleCod}>
+          {config.codEnabled ? "Disable Cash on Delivery" : "Enable Cash on Delivery"}
+        </Btn>
+      </Card>
+
       <Card style={{ maxWidth: 420 }}>
         {qrCode ? (
           <div style={{ textAlign: "center" }}>
@@ -3441,6 +3596,7 @@ function App() {
   const setSlotOverridesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setSlotOverrides(v); }, []);
   const setLocationsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setLocations(v); }, []);
   const setGalleryT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setGallery(v); }, []);
+  const setOrdersT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setOrders(v); }, []);
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
@@ -3469,7 +3625,7 @@ function App() {
         [K.dogs, []], [K.orders, []], [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
         [K.locations, SEED_LOCATIONS], [K.qrCode, ""], [K.faqs, SEED_FAQS], [K.audit, []], [K.gallery, []],
       ]);
-      setConfig({ ...SEED_CONFIG, ...c, sessions: { ...SEED_CONFIG.sessions, ...(c.sessions || {}) } });
+      setConfig(mergeConfig(c));
       setIngredients(ing); setBreeds(br); setEngine(en);
       setDogs(dg); setOrders(ord); setCancelledSlots(cs); setForceOpenSlots(fo); setSlotOverrides(so);
       setLocations(loc); setQrCode(qr); setFaqs(fq && fq.length ? fq : SEED_FAQS); setAudit(au); setGallery(gal);
@@ -3512,13 +3668,12 @@ function App() {
       }
       knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
 
-      setOrders((prev) => (JSON.stringify(prev) === JSON.stringify(ord) ? prev : ord));
-      setDogs((prev) => (JSON.stringify(prev) === JSON.stringify(dg) ? prev : dg));
-
       const withinEditGrace = Date.now() - lastAdminEditRef.current < EDIT_GRACE_MS;
       if (!withinEditGrace) {
+        setOrders((prev) => (JSON.stringify(prev) === JSON.stringify(ord) ? prev : ord));
+        setDogs((prev) => (JSON.stringify(prev) === JSON.stringify(dg) ? prev : dg));
         setConfig((prev) => {
-          const merged = { ...SEED_CONFIG, ...cfgRaw, sessions: { ...SEED_CONFIG.sessions, ...(cfgRaw.sessions || {}) } };
+          const merged = mergeConfig(cfgRaw);
           return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
         });
         setCancelledSlots((prev) => (JSON.stringify(prev) === JSON.stringify(cs) ? prev : cs));
@@ -3530,13 +3685,17 @@ function App() {
     } catch {}
   }, []);
 
+  // Deliberately no interval timer here anymore -- constantly polling on a
+  // clock regardless of whether anything's actually changed just burns
+  // through Sheets calls for no reason. Refresh now only happens when
+  // there's an actual signal something might be different: the window
+  // regaining focus (you switched back to this tab), admin unlocking into
+  // admin mode, or one of the manual "Refresh" buttons.
   useEffect(() => {
     if (loading) return;
-    const pollMs = (typeof window !== "undefined" && window.__STORAGE_POLL_MS__) || 5000;
-    const interval = setInterval(refresh, pollMs);
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
-    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
+    return () => window.removeEventListener("focus", onFocus);
   }, [loading, refresh]);
 
   const logAudit = useCallback((details) => {
@@ -3564,14 +3723,14 @@ function App() {
 
   // --- admin gate ---
   const requestAdmin = () => {
-    if (adminUnlocked) { setRole("admin"); return; }
+    if (adminUnlocked) { setRole("admin"); refresh(); return; }
     setPwInput(""); setPwError(""); setShowPwModal(true);
   };
   const submitPassword = () => {
     if (pwInput === ADMIN_PASSWORD) {
       setAdminUnlocked(true);
       window.storage.set("dfp:adminUnlocked", "true", false).catch(() => {});
-      setRole("admin"); setShowPwModal(false);
+      setRole("admin"); setShowPwModal(false); refresh();
     } else setPwError("Incorrect password.");
   };
   const lockAdmin = () => {
@@ -3699,7 +3858,7 @@ function App() {
           {role === "customer" && tab === "gallery" && <GalleryView myName={myName} dogs={dogs} gallery={gallery} setGallery={setGallery} config={config} />}
 
           {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} onGoToOrders={goToOrdersFiltered} onRefresh={refresh} />}
-          {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrders} config={config} logAudit={logAudit} initialFilter={pendingOrderFilter} onConsumeInitialFilter={() => setPendingOrderFilter(null)} onRefresh={refresh} />}
+          {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrdersT} config={config} logAudit={logAudit} initialFilter={pendingOrderFilter} onConsumeInitialFilter={() => setPendingOrderFilter(null)} onRefresh={refresh} />}
           {role === "admin" && tab === "ingredients" && <AdminIngredients ingredients={ingredients} setIngredients={setIngredients} logAudit={logAudit} />}
           {role === "admin" && tab === "rules" && <AdminRules breeds={breeds} setBreeds={setBreeds} engine={engine} setEngine={setEngine} logAudit={logAudit} />}
           {role === "admin" && tab === "locations" && <AdminLocations locations={locations} setLocations={setLocationsT} logAudit={logAudit} />}
@@ -3710,7 +3869,7 @@ function App() {
               slotOverrides={slotOverrides} setSlotOverrides={setSlotOverridesT} logAudit={logAudit}
             />
           )}
-          {role === "admin" && tab === "payments" && <AdminPayments qrCode={qrCode} setQrCode={setQrCode} logAudit={logAudit} />}
+          {role === "admin" && tab === "payments" && <AdminPayments qrCode={qrCode} setQrCode={setQrCode} config={config} setConfig={setConfigT} logAudit={logAudit} />}
           {role === "admin" && tab === "faq" && <AdminFAQ faqs={faqs} setFaqs={setFaqs} logAudit={logAudit} />}
           {role === "admin" && tab === "gallery" && <AdminGallery gallery={gallery} setGallery={setGalleryT} config={config} setConfig={setConfigT} logAudit={logAudit} />}
           {role === "admin" && tab === "data" && <AdminData orders={orders} dogs={dogs} audit={audit} logAudit={logAudit} />}
@@ -3729,9 +3888,13 @@ function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName,
     <header className="app-header">
       <div className="app-header-inner">
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex", flexShrink: 0 }}>
-            <Dog size={18} color="#fff" />
-          </div>
+          {config.logoDataUrl ? (
+            <img src={config.logoDataUrl} alt={config.serviceName} style={{ width: 34, height: 34, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />
+          ) : (
+            <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex", flexShrink: 0 }}>
+              <Dog size={18} color="#fff" />
+            </div>
+          )}
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{config.serviceName}</div>
             <div className="app-brand-tagline" style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--muted)", letterSpacing: "0.04em" }}>{config.tagline}</div>
