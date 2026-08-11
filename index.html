@@ -1560,6 +1560,7 @@ function MyOrdersView({ myName, orders, config, qrCode }) {
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 600 }}>{o.dogSnapshot.name}&apos;s meal</div>
                   <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
                     {fmtDateLabel(o.date)} &middot; {config.sessions[o.session]?.label || o.session} ({fmtTime(o.servingTime)}) &middot; {rupee(o.totalPrice)}
+                    {o.paymentMethod === "cod" && <> <Pill>COD</Pill></>}
                   </div>
                   <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--ring-strong)", marginTop: 3 }}>
                     Ordered {fmtDateTime(o.createdAt)}
@@ -2058,7 +2059,9 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
                       <td style={{ padding: "9px 14px" }}>{o.dogSnapshot.name}</td>
                       <td style={{ padding: "9px 14px", fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtDateTime(o.createdAt)}</td>
                       <td style={{ padding: "9px 14px" }}><Pill tone={cancelled ? "bad" : pending ? "warn" : "good"}>{STATUS_LABEL[o.status]}</Pill></td>
-                      <td style={{ padding: "9px 14px", fontFamily: "var(--font-mono)" }}>{rupee(o.totalPrice)}</td>
+                      <td style={{ padding: "9px 14px", fontFamily: "var(--font-mono)" }}>
+                        {rupee(o.totalPrice)}{o.paymentMethod === "cod" && <> <Pill>COD</Pill></>}
+                      </td>
                     </tr>
                   );
                 })}
@@ -2222,7 +2225,9 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                       <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12.5 }}>{fmtDateLabel(o.date)} &middot; {config.sessions[o.session]?.label}</td>
                       <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtDateTime(o.createdAt)}</td>
                       <td style={{ padding: "10px 14px" }}><Pill tone={o.status === "CANCELLED" ? "bad" : pending ? "warn" : "good"}>{STATUS_LABEL[o.status]}</Pill></td>
-                      <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)" }}>{rupee(o.totalPrice)}</td>
+                      <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)" }}>
+                        {rupee(o.totalPrice)}{o.paymentMethod === "cod" && <> <Pill>COD</Pill></>}
+                      </td>
                       <td style={{ padding: "10px 14px" }}><ChevronDown size={15} style={{ transform: openId === o.id ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} /></td>
                     </tr>
                     {openId === o.id && (
