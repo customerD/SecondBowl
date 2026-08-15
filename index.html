@@ -1141,7 +1141,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
    CUSTOMER: Saved delivery addresses (add once here, pick at order time)
    ========================================================================= */
 
-function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, communityPosts, setCommunityPosts, allAddresses, setAllAddresses, onMyPhoneChange, onGoToDogs }) {
+function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, communityPosts, setCommunityPosts, allAddresses, setAllAddresses, onMyPhoneChange, onMyPhotoChange, onGoToDogs }) {
   const [rec, setRec] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -1151,6 +1151,8 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
   const [editingEmail, setEditingEmail] = useState(false);
   const [draftEmail, setDraftEmail] = useState("");
   const [error, setError] = useState("");
+  const [photoWarning, setPhotoWarning] = useState("");
+  const photoFileRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -1179,6 +1181,28 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
     setError("");
     await saveField({ email: trimmed });
     setEditingEmail(false);
+  };
+
+  const onPhotoFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result;
+      if (dataUrl.length > 1_000_000) {
+        setPhotoWarning("That photo is too large -- try a smaller or more compressed image (roughly under 700KB works well).");
+        if (photoFileRef.current) photoFileRef.current.value = "";
+        return;
+      }
+      setPhotoWarning("");
+      await saveField({ photoDataUrl: dataUrl });
+      onMyPhotoChange?.(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+  const removePhoto = async () => {
+    await saveField({ photoDataUrl: "" });
+    onMyPhotoChange?.("");
   };
 
   // Renaming is safe now that every entity has a real customerId: the
@@ -1227,6 +1251,26 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
   return (
     <div>
       <SectionTitle eyebrow="Customer" title="Your profile" sub="The single place to manage your details -- everything here is reused automatically wherever it's needed, so you won't be asked again." />
+
+      <Card style={{ maxWidth: 480, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {rec?.photoDataUrl ? (
+            <img src={rec.photoDataUrl} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+          ) : (
+            <div style={{ width: 64, height: 64, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24, flexShrink: 0, background: avatarColorFor(myName) }}>
+              {(myName || "?").trim().charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn small variant="ghost" onClick={() => photoFileRef.current?.click()}><Upload size={13} /> {rec?.photoDataUrl ? "Change photo" : "Add a photo"}</Btn>
+              {rec?.photoDataUrl && <Btn small variant="ghost" onClick={removePhoto}><Trash2 size={13} /> Remove</Btn>}
+            </div>
+            {photoWarning && <div style={{ color: "var(--clay)", fontSize: 12.5, marginTop: 8 }}>{photoWarning}</div>}
+          </div>
+          <input ref={photoFileRef} type="file" accept="image/*" onChange={onPhotoFile} style={{ display: "none" }} />
+        </div>
+      </Card>
 
       <Card style={{ maxWidth: 480, marginBottom: 20 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -1463,7 +1507,11 @@ function CommunityPostCard({ post, onOpen }) {
   return (
     <div className="insta-post" onClick={() => onOpen(post.id)}>
       <div className="insta-post-header">
-        <div className="insta-avatar" style={{ background: avatarColorFor(post.authorName) }}>{initial}</div>
+        {post.authorPhoto ? (
+          <img src={post.authorPhoto} alt="" className="insta-avatar" style={{ objectFit: "cover" }} />
+        ) : (
+          <div className="insta-avatar" style={{ background: avatarColorFor(post.authorName) }}>{initial}</div>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="insta-username">{post.authorName}</div>
           <div className="insta-post-meta">
@@ -1561,9 +1609,18 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
           )}
         </div>
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, marginBottom: 8 }}>{post.title}</div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 18 }}>
-          By {post.authorName} &middot; {fmtDateLabel(toDateStr(new Date(post.createdAt)))}
-          {post.updatedAt && post.updatedAt !== post.createdAt && <> &middot; edited</>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+          {post.authorPhoto ? (
+            <img src={post.authorPhoto} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
+          ) : (
+            <div style={{ width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11, background: avatarColorFor(post.authorName) }}>
+              {(post.authorName || "?").trim().charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>
+            By {post.authorName} &middot; {fmtDateLabel(toDateStr(new Date(post.createdAt)))}
+            {post.updatedAt && post.updatedAt !== post.createdAt && <> &middot; edited</>}
+          </div>
         </div>
 
         {post.dogDetails && (
@@ -1614,12 +1671,21 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
           {postComments.length === 0 ? (
             <p style={{ fontSize: 13.5, color: "var(--muted)", margin: 0 }}>No comments yet -- be the first to share your thoughts.</p>
           ) : postComments.map((c) => (
-            <div key={c.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}>
-                <b>{c.userName}</b>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(c.createdAt)}</span>
+            <div key={c.id} style={{ display: "flex", gap: 8 }}>
+              {c.userPhoto ? (
+                <img src={c.userPhoto} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
+              ) : (
+                <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11.5, flexShrink: 0, marginTop: 1, background: avatarColorFor(c.userName) }}>
+                  {(c.userName || "?").trim().charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}>
+                  <b>{c.userName}</b>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(c.createdAt)}</span>
+                </div>
+                <div style={{ fontSize: 14 }}>{c.text}</div>
               </div>
-              <div style={{ fontSize: 14 }}>{c.text}</div>
             </div>
           ))}
         </div>
@@ -1647,7 +1713,7 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
   );
 }
 
-function CommunityView({ myName, myCustomerId, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
+function CommunityView({ myName, myCustomerId, myPhoto, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
   const [view, setView] = useState("list"); // list | post | create
   const [openPostId, setOpenPostId] = useState(null);
   const [topicFilter, setTopicFilter] = useState("");
@@ -1691,7 +1757,7 @@ function CommunityView({ myName, myCustomerId, dogs, breeds, config, communityTo
 
   const submitPost = async (draft) => {
     const entry = {
-      id: uid("post_"), authorId: myCustomerId, authorName: myName,
+      id: uid("post_"), authorId: myCustomerId, authorName: myName, authorPhoto: myPhoto || "",
       title: draft.title, content: draft.content, topic: draft.topic, breed: draft.breed, dogDetails: draft.dogDetails,
       attachments: draft.attachments, createdAt: Date.now(), updatedAt: null, status: "pending", likeCount: 0, commentCount: 0,
     };
@@ -1717,7 +1783,7 @@ function CommunityView({ myName, myCustomerId, dogs, breeds, config, communityTo
   };
 
   const addComment = async (postId, text) => {
-    const entry = { id: uid("comment_"), postId, userId: myCustomerId, userName: myName, text, createdAt: Date.now(), updatedAt: null, status: "visible" };
+    const entry = { id: uid("comment_"), postId, userId: myCustomerId, userName: myName, userPhoto: myPhoto || "", text, createdAt: Date.now(), updatedAt: null, status: "visible" };
     const nextComments = [...communityComments, entry];
     const nextPosts = communityPosts.map((p) => (p.id === postId ? { ...p, commentCount: (p.commentCount || 0) + 1 } : p));
     setCommunityComments(nextComments);
@@ -4639,6 +4705,7 @@ function App() {
   const [myName, setMyName] = useState("");
   const [myCustomerId, setMyCustomerId] = useState("");
   const [myPhone, setMyPhone] = useState("");
+  const [myPhoto, setMyPhoto] = useState("");
   const [myPhoneLoaded, setMyPhoneLoaded] = useState(false);
   const [welcome, setWelcome] = useState(null); // { message, sub } | null
   const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : urlParams.get("post") ? "community" : "order"));
@@ -4717,13 +4784,14 @@ function App() {
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
-    if (!myName) { setMyCustomerId(""); setMyPhone(""); setMyPhoneLoaded(false); return; }
+    if (!myName) { setMyCustomerId(""); setMyPhone(""); setMyPhoto(""); setMyPhoneLoaded(false); return; }
     let cancelled = false;
     setMyPhoneLoaded(false);
     (async () => {
       const rec = await getCustomerRecord(myName);
       if (!rec || cancelled) return;
       setMyPhone(rec.phone || "");
+      setMyPhoto(rec.photoDataUrl || "");
       setMyPhoneLoaded(true);
       if (rec.customerId) {
         setMyCustomerId(rec.customerId);
@@ -5037,7 +5105,7 @@ function App() {
       )}
       {welcome && <WelcomeOverlay message={welcome.message} sub={welcome.sub} onDone={() => setWelcome(null)} />}
       <Header role={role} setRole={setRole} setTab={setTab} requestAdmin={requestAdmin} adminUnlocked={adminUnlocked} lockAdmin={lockAdmin}
-        myName={myName} openAuth={openAuth} signOut={signOut} goToProfile={() => setTab("profile")} config={config} theme={theme} toggleTheme={toggleTheme}
+        myName={myName} myPhoto={myPhoto} openAuth={openAuth} signOut={signOut} goToProfile={() => setTab("profile")} config={config} theme={theme} toggleTheme={toggleTheme}
         notifications={notifications} notifOpen={notifOpen} setNotifOpen={setNotifOpen}
         lastReadTs={lastReadTs} setLastReadTs={setLastReadTs} />
       {role === "admin" && adminUnlocked && toast && (
@@ -5091,12 +5159,12 @@ function App() {
             <ProfileView
               myName={myName} setMyName={setMyName} myCustomerId={myCustomerId}
               dogs={dogs} setDogs={setDogs} orders={orders} setOrders={setOrders} communityPosts={communityPosts} setCommunityPosts={setCommunityPosts}
-              allAddresses={addresses} setAllAddresses={setAddresses} onMyPhoneChange={setMyPhone} onGoToDogs={() => setTab("dogs")}
+              allAddresses={addresses} setAllAddresses={setAddresses} onMyPhoneChange={setMyPhone} onMyPhotoChange={setMyPhoto} onGoToDogs={() => setTab("dogs")}
             />
           )}
           {role === "customer" && tab === "community" && (
             <CommunityView
-              myName={myName} myCustomerId={myCustomerId} dogs={dogs} breeds={breeds} config={config}
+              myName={myName} myCustomerId={myCustomerId} myPhoto={myPhoto} dogs={dogs} breeds={breeds} config={config}
               communityTopics={communityTopics} communityPosts={communityPosts} setCommunityPosts={setCommunityPosts}
               communityComments={communityComments} setCommunityComments={setCommunityComments}
               communityLikes={communityLikes} setCommunityLikes={setCommunityLikes} communityLoaded={communityLoaded}
@@ -5132,7 +5200,7 @@ function App() {
   );
 }
 
-function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin, myName, openAuth, signOut, goToProfile, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs }) {
+function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin, myName, myPhoto, openAuth, signOut, goToProfile, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs }) {
   const unreadCount = notifications.filter((n) => n.ts > lastReadTs).length;
   return (
     <header className="app-header">
@@ -5182,7 +5250,8 @@ function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin,
             myName ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button onClick={goToProfile} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface-muted)", border: "none", borderRadius: 980, padding: "7px 12px", cursor: "pointer" }}>
-                  <CircleUser size={15} /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{myName}</span>
+                  {myPhoto ? <img src={myPhoto} alt="" style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover" }} /> : <CircleUser size={15} />}
+                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>{myName}</span>
                 </button>
                 <Btn small variant="ghost" onClick={signOut}><LogOut size={13} /> Log out</Btn>
               </div>
