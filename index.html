@@ -191,6 +191,35 @@ window.storage = {
   },
 };
 
+// Password reset only works with a real Sheets backend, since it needs
+// Apps Script's MailApp to actually send an email -- there's no such
+// capability to fall back to locally. Left unset (and therefore not
+// available) when running without Sheets configured; the app body's
+// requestPasswordReset/resetPasswordWithToken functions detect that and
+// fail with a clear message instead of crashing.
+if (SHEETS_ENABLED) {
+  window.__sendPasswordResetEmail__ = async function (email) {
+    const res = await fetch(SHEETS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "requestReset", email, token: SHEETS_TOKEN }),
+    });
+    const data = await parseSheetsResponse_(res);
+    if (data.error) throw new Error(data.error);
+    return data;
+  };
+  window.__resetPasswordWithToken__ = async function (resetToken, newPassword) {
+    const res = await fetch(SHEETS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "resetPassword", resetToken, passwordHash: simpleHash(newPassword), token: SHEETS_TOKEN }),
+    });
+    const data = await parseSheetsResponse_(res);
+    if (data.error) throw new Error(data.error);
+    return data;
+  };
+}
+
 /* ---------------------------------------------------------------------------
    Lightweight icon stand-ins (the CDN build has no lucide-react package).
    Same call shape as before -- <Dog size={18} color="..."/> -- backed by a
@@ -309,6 +338,14 @@ async function saveCustomerPhone(name, phone) {
   rec.phone = phone;
   await window.storage.set(customerKey(name), JSON.stringify(rec), true);
   return true;
+}
+async function requestPasswordReset(email) {
+  if (window.__sendPasswordResetEmail__) return window.__sendPasswordResetEmail__(email);
+  throw new Error("Password reset isn't available in this preview -- it requires the Google Sheets backend (with email sending) to be configured.");
+}
+async function resetPasswordWithToken(token, newPassword) {
+  if (window.__resetPasswordWithToken__) return window.__resetPasswordWithToken__(token, newPassword);
+  throw new Error("Password reset isn't available in this preview -- it requires the Google Sheets backend to be configured.");
 }
 
 const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -791,60 +828,91 @@ function PasswordModal({ value, setValue, error, onSubmit, onCancel }) {
    Customer account modal (name + password, dogs auto-populate by name)
    ========================================================================= */
 
-function AuthModal({ mode, name, setName, pw, setPw, pw2, setPw2, error, busy, onLogin, onSignup, onSwitchMode, onCancel }) {
+function AuthModal({ mode, name, setName, pw, setPw, pw2, setPw2, email, setEmail, forgotEmail, setForgotEmail, error, busy, forgotSent, onLogin, onSignup, onForgotSubmit, onSwitchMode, onCancel }) {
   return (
     <Modal onCancel={onCancel}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}>
-          <CircleUser size={16} color="#fff" />
+      <div className="auth-modal-enter">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}>
+            <CircleUser size={16} color="#fff" />
+          </div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 }}>
+            {mode === "login" ? "Log in" : mode === "signup" ? "Create your account" : "Reset your password"}
+          </div>
         </div>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 }}>
-          {mode === "login" ? "Log in" : "Create your account"}
-        </div>
-      </div>
 
-      {mode === "login" ? (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Field label="Your name">
-              <input autoFocus style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Rahul" />
-            </Field>
-            <Field label="Password">
-              <input type="password" style={inputStyle} value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} placeholder="Password" />
-            </Field>
-          </div>
-          {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
-          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-            <Btn onClick={onLogin} disabled={busy} full>Log in</Btn>
-            <Btn variant="ghost" onClick={onCancel} full>Cancel</Btn>
-          </div>
-          <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 14 }}>
-            New here? <button onClick={onSwitchMode} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>Create an account</button> instead.
-          </p>
-        </>
-      ) : (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Field label="Your name">
-              <input autoFocus style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Rahul" />
-            </Field>
-            <Field label="Create a password">
-              <input type="password" style={inputStyle} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="At least 4 characters" />
-            </Field>
-            <Field label="Confirm password">
-              <input type="password" style={inputStyle} value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onSignup()} placeholder="Repeat password" />
-            </Field>
-          </div>
-          {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
-          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-            <Btn onClick={onSignup} disabled={busy} full>Create account</Btn>
-            <Btn variant="ghost" onClick={onCancel} full>Cancel</Btn>
-          </div>
-          <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 14 }}>
-            Already have an account? <button onClick={onSwitchMode} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>Log in</button> instead.
-          </p>
-        </>
-      )}
+        {mode === "login" && (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field label="Your name">
+                <input autoFocus style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Rahul" />
+              </Field>
+              <Field label="Password">
+                <input type="password" style={inputStyle} value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} placeholder="Password" />
+              </Field>
+            </div>
+            {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+              <Btn onClick={onLogin} disabled={busy} full>Log in</Btn>
+              <Btn variant="ghost" onClick={onCancel} full>Cancel</Btn>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+              <span>New here? <button onClick={() => onSwitchMode("signup")} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>Create an account</button></span>
+              <button onClick={() => onSwitchMode("forgot")} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>Forgot password?</button>
+            </p>
+          </>
+        )}
+
+        {mode === "signup" && (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field label="Your name">
+                <input autoFocus style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Rahul" />
+              </Field>
+              <Field label="Email">
+                <input type="email" style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="rahul@example.com" />
+              </Field>
+              <Field label="Create a password">
+                <input type="password" style={inputStyle} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="At least 4 characters" />
+              </Field>
+              <Field label="Confirm password">
+                <input type="password" style={inputStyle} value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onSignup()} placeholder="Repeat password" />
+              </Field>
+            </div>
+            {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+              <Btn onClick={onSignup} disabled={busy} full>Create account</Btn>
+              <Btn variant="ghost" onClick={onCancel} full>Cancel</Btn>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 14 }}>
+              Already have an account? <button onClick={() => onSwitchMode("login")} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>Log in</button> instead.
+            </p>
+          </>
+        )}
+
+        {mode === "forgot" && (
+          <>
+            {forgotSent ? (
+              <>
+                <p style={{ fontSize: 14, lineHeight: 1.6 }}>If an account with that email exists, we've sent a password reset link to it. Check your inbox (and spam folder) for a message from us.</p>
+                <Btn full style={{ marginTop: 14 }} onClick={onCancel}>Done</Btn>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 13.5, color: "var(--muted)", margin: "0 0 12px" }}>Enter the email you signed up with, and we'll send you a link to reset your password.</p>
+                <Field label="Email">
+                  <input autoFocus type="email" style={inputStyle} value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onForgotSubmit()} placeholder="rahul@example.com" />
+                </Field>
+                {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 8 }}>{error}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+                  <Btn onClick={onForgotSubmit} disabled={busy} full>Send reset link</Btn>
+                  <Btn variant="ghost" onClick={() => onSwitchMode("login")} full>Back</Btn>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -973,6 +1041,155 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
 /* ============================================================================
    CUSTOMER: Saved delivery addresses (add once here, pick at order time)
    ========================================================================= */
+
+function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, gallery, setGallery, allAddresses, setAllAddresses, onGoToDogs }) {
+  const [rec, setRec] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [draftPhone, setDraftPhone] = useState("");
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [draftEmail, setDraftEmail] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      if (!myName) { setRec(null); setLoaded(true); return; }
+      const r = await getCustomerRecord(myName);
+      setRec(r);
+      setLoaded(true);
+    })();
+  }, [myName]);
+
+  const saveField = async (patch) => {
+    const next = { ...rec, ...patch };
+    await window.storage.set(customerKey(myName), JSON.stringify(next), true);
+    setRec(next);
+  };
+
+  const savePhone = async () => {
+    await saveField({ phone: draftPhone.trim() });
+    setEditingPhone(false);
+  };
+  const saveEmail = async () => {
+    const trimmed = draftEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) { setError("Enter a valid email address."); return; }
+    setError("");
+    await saveField({ email: trimmed });
+    setEditingEmail(false);
+  };
+
+  // Renaming is safe now that every entity has a real customerId: the
+  // account record just moves to a new key, and every existing dog/order/
+  // gallery photo this customer owns gets its cached display name
+  // refreshed to match -- found by customerId, not by the old name.
+  const saveName = async () => {
+    const newName = draftName.trim();
+    if (!newName) { setError("Enter a name."); return; }
+    if (newName.toLowerCase() === myName.trim().toLowerCase()) { setEditingName(false); return; }
+    setError("");
+    try {
+      const existing = await window.storage.get(customerKey(newName), true);
+      if (existing?.value) { setError("That name is already taken."); return; }
+    } catch {
+      // not found -- exactly what we want, fall through
+    }
+
+    const nextRec = { ...rec, name: newName };
+    await window.storage.set(customerKey(newName), JSON.stringify(nextRec), true);
+    await window.storage.delete(customerKey(myName), true);
+
+    const nextDogs = dogs.map((d) => (d.customerId === myCustomerId ? { ...d, owner: newName } : d));
+    setDogs(nextDogs);
+    await persist(K.dogs, nextDogs);
+
+    const nextOrders = orders.map((o) => (o.customerId === myCustomerId ? { ...o, customerName: newName } : o));
+    setOrders(nextOrders);
+    await persist(K.orders, nextOrders);
+
+    const nextGallery = gallery.map((p) => (p.customerId === myCustomerId ? { ...p, customerName: newName } : p));
+    setGallery(nextGallery);
+    await persist(K.gallery, nextGallery);
+
+    setRec(nextRec);
+    setMyName(newName);
+    window.storage.set("dfp:session", JSON.stringify({ name: newName }), false).catch(() => {});
+    setEditingName(false);
+  };
+
+  if (!myName) return <div><SectionTitle eyebrow="Customer" title="Your profile" /><Card><p style={{ margin: 0 }}>Sign in up top to view your profile.</p></Card></div>;
+  if (!loaded) return null;
+
+  const myDogCount = dogs.filter((d) => d.customerId === myCustomerId).length;
+
+  return (
+    <div>
+      <SectionTitle eyebrow="Customer" title="Your profile" sub="The single place to manage your details -- everything here is reused automatically wherever it's needed, so you won't be asked again." />
+
+      <Card style={{ maxWidth: 480, marginBottom: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Name</div>
+            {editingName ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input style={{ ...inputStyle, flex: 1, minWidth: 140 }} value={draftName} onChange={(e) => setDraftName(e.target.value)} autoFocus />
+                <Btn small onClick={saveName}>Save</Btn>
+                <Btn small variant="ghost" onClick={() => { setEditingName(false); setError(""); }}>Cancel</Btn>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 16, fontWeight: 600 }}>{myName}</span>
+                <button onClick={() => { setDraftName(myName); setEditingName(true); setError(""); }} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, textDecoration: "underline" }}>Edit</button>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Phone</div>
+            {editingPhone ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input style={{ ...inputStyle, flex: 1, minWidth: 140 }} value={draftPhone} onChange={(e) => setDraftPhone(e.target.value)} autoFocus />
+                <Btn small onClick={savePhone}>Save</Btn>
+                <Btn small variant="ghost" onClick={() => setEditingPhone(false)}>Cancel</Btn>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 16 }}>{rec?.phone || <span style={{ color: "var(--muted)" }}>Not set</span>}</span>
+                <button onClick={() => { setDraftPhone(rec?.phone || ""); setEditingPhone(true); }} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, textDecoration: "underline" }}>Edit</button>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
+            {editingEmail ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input type="email" style={{ ...inputStyle, flex: 1, minWidth: 140 }} value={draftEmail} onChange={(e) => setDraftEmail(e.target.value)} autoFocus />
+                <Btn small onClick={saveEmail}>Save</Btn>
+                <Btn small variant="ghost" onClick={() => { setEditingEmail(false); setError(""); }}>Cancel</Btn>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 16 }}>{rec?.email || <span style={{ color: "var(--muted)" }}>Not set — add one to enable password reset</span>}</span>
+                <button onClick={() => { setDraftEmail(rec?.email || ""); setEditingEmail(true); setError(""); }} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, textDecoration: "underline" }}>Edit</button>
+              </div>
+            )}
+          </div>
+          {error && <div style={{ color: "var(--clay)", fontSize: 13 }}>{error}</div>}
+        </div>
+      </Card>
+
+      <Card style={{ maxWidth: 480, marginBottom: 20 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 6 }}>Your dogs</div>
+        <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 10 }}>{myDogCount} dog{myDogCount === 1 ? "" : "s"} on file.</p>
+        <Btn small variant="ghost" onClick={onGoToDogs}>Manage your dogs</Btn>
+      </Card>
+
+      <AddressManager myName={myName} myCustomerId={myCustomerId} allAddresses={allAddresses} setAllAddresses={setAllAddresses} />
+    </div>
+  );
+}
 
 function AddressManager({ myName, myCustomerId, allAddresses, setAllAddresses }) {
   const [form, setForm] = useState(null);
@@ -2028,6 +2245,61 @@ function TrackOrderView({ orderId, orders, config }) {
             </div>
           </Card>
         )}
+      </div>
+    </Shell>
+  );
+}
+
+function ResetPasswordView({ token, config }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (pw.length < 4) { setError("Password must be at least 4 characters."); return; }
+    if (pw !== pw2) { setError("Passwords don't match."); return; }
+    setBusy(true); setError("");
+    try {
+      await resetPasswordWithToken(token, pw);
+      setDone(true);
+    } catch (err) {
+      setError(err?.message || "That reset link is invalid or has expired. Request a new one from the login screen.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Shell theme="light">
+      <div style={{ maxWidth: 440, margin: "60px auto", padding: "0 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+          {config.logoDataUrl ? (
+            <img src={config.logoDataUrl} alt="" style={{ width: 36, height: 36, borderRadius: 10, objectFit: "cover" }} />
+          ) : (
+            <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}><Dog size={18} color="#fff" /></div>
+          )}
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 }}>{config.serviceName}</div>
+        </div>
+        <Card>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 14 }}>Set a new password</div>
+          {done ? (
+            <p style={{ fontSize: 14, lineHeight: 1.6 }}>Your password has been reset. You can close this page and log in with your new password.</p>
+          ) : (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <Field label="New password">
+                  <input autoFocus type="password" style={inputStyle} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="At least 4 characters" />
+                </Field>
+                <Field label="Confirm new password">
+                  <input type="password" style={inputStyle} value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Repeat password" />
+                </Field>
+              </div>
+              {error && <div style={{ color: "var(--clay)", fontSize: 13, marginTop: 10 }}>{error}</div>}
+              <Btn full style={{ marginTop: 16 }} onClick={submit} disabled={busy}>{busy ? "Resetting…" : "Reset password"}</Btn>
+            </>
+          )}
+        </Card>
       </div>
     </Shell>
   );
@@ -4041,6 +4313,7 @@ const CUSTOMER_TABS = [
   { id: "myorders", label: "My Orders", icon: ClipboardList },
   { id: "gallery", label: "Gallery", icon: ImageIcon },
   { id: "contact", label: "Contact", icon: Phone },
+  { id: "profile", label: "Profile", icon: CircleUser },
 ];
 const ADMIN_TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -4062,6 +4335,7 @@ function App() {
   const [role, setRole] = useState("customer");
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const trackOrderId = urlParams.get("order");
+  const resetToken = urlParams.get("resetToken");
   const [myName, setMyName] = useState("");
   const [myCustomerId, setMyCustomerId] = useState("");
   const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : "order"));
@@ -4094,10 +4368,13 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [authName, setAuthName] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
   const [authPw, setAuthPw] = useState("");
   const [authPw2, setAuthPw2] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
 
   const [theme, setTheme] = useState("light");
 
@@ -4289,8 +4566,8 @@ function App() {
   };
 
   // --- customer account gate ---
-  const openAuth = (mode) => { setAuthOpen(true); setAuthMode(mode); setAuthName(myName || ""); setAuthPw(""); setAuthPw2(""); setAuthError(""); };
-  const switchAuthMode = () => { setAuthMode((m) => (m === "login" ? "signup" : "login")); setAuthError(""); setAuthPw(""); setAuthPw2(""); };
+  const openAuth = (mode) => { setAuthOpen(true); setAuthMode(mode); setAuthName(myName || ""); setAuthEmail(""); setAuthPw(""); setAuthPw2(""); setAuthError(""); setForgotEmail(""); setForgotSent(false); };
+  const switchAuthMode = (mode) => { setAuthMode(mode); setAuthError(""); setAuthPw(""); setAuthPw2(""); setForgotSent(false); };
   const authLogin = async () => {
     const name = authName.trim();
     if (!name) { setAuthError("Enter your name."); return; }
@@ -4310,7 +4587,9 @@ function App() {
   };
   const authSignup = async () => {
     const name = authName.trim();
+    const emailTrim = authEmail.trim();
     if (!name) { setAuthError("Enter your name."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) { setAuthError("Enter a valid email address -- it's needed to reset your password later if you ever need to."); return; }
     if (authPw.length < 4) { setAuthError("Password must be at least 4 characters."); return; }
     if (authPw !== authPw2) { setAuthError("Passwords don't match."); return; }
     setAuthBusy(true); setAuthError("");
@@ -4324,11 +4603,25 @@ function App() {
     } catch {
       // not found -- exactly what we want for a new signup, fall through
     }
-    const data = { customerId: uid("cust_"), name, passwordHash: simpleHash(authPw), phone: "", createdAt: Date.now() };
+    const data = { customerId: uid("cust_"), name, email: emailTrim, passwordHash: simpleHash(authPw), phone: "", createdAt: Date.now() };
     await window.storage.set(customerKey(name), JSON.stringify(data), true);
     setMyName(name);
     window.storage.set("dfp:session", JSON.stringify({ name }), false).catch(() => {});
     setAuthOpen(false);
+    setAuthBusy(false);
+  };
+  const authForgotSubmit = async () => {
+    const emailTrim = forgotEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) { setAuthError("Enter a valid email address."); return; }
+    setAuthBusy(true); setAuthError("");
+    try {
+      await requestPasswordReset(emailTrim);
+    } catch {
+      // Deliberately swallowed: whether this succeeds or fails server-side,
+      // the customer sees the same generic message either way, so a
+      // network hiccup here doesn't leak anything about account existence.
+    }
+    setForgotSent(true);
     setAuthBusy(false);
   };
   const signOut = () => { setMyName(""); window.storage.set("dfp:session", JSON.stringify({ name: "" }), false).catch(() => {}); };
@@ -4344,6 +4637,10 @@ function App() {
   const goToOrdersFiltered = (date, session) => { setPendingOrderFilter({ date, session }); setTab("orders"); };
 
   CURRENCY_SYMBOL = config.currencySymbol || "₹";
+
+  if (resetToken) {
+    return <ResetPasswordView token={resetToken} config={config} />;
+  }
 
   if (trackOrderId) {
     if (loading) return <Shell theme={theme}><div style={{ padding: 60, textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--muted)" }}>Loading your order&hellip;</div></Shell>;
@@ -4375,13 +4672,14 @@ function App() {
       {authOpen && (
         <AuthModal
           mode={authMode} name={authName} setName={setAuthName} pw={authPw} setPw={setAuthPw} pw2={authPw2} setPw2={setAuthPw2}
+          email={authEmail} setEmail={setAuthEmail} forgotEmail={forgotEmail} setForgotEmail={setForgotEmail} forgotSent={forgotSent}
           error={authError} busy={authBusy}
-          onLogin={authLogin} onSignup={authSignup}
+          onLogin={authLogin} onSignup={authSignup} onForgotSubmit={authForgotSubmit}
           onSwitchMode={switchAuthMode} onCancel={() => setAuthOpen(false)}
         />
       )}
       <Header role={role} setRole={setRole} requestAdmin={requestAdmin} adminUnlocked={adminUnlocked} lockAdmin={lockAdmin}
-        myName={myName} openAuth={openAuth} signOut={signOut} config={config} theme={theme} toggleTheme={toggleTheme}
+        myName={myName} openAuth={openAuth} signOut={signOut} goToProfile={() => setTab("profile")} config={config} theme={theme} toggleTheme={toggleTheme}
         notifications={notifications} notifOpen={notifOpen} setNotifOpen={setNotifOpen}
         lastReadTs={lastReadTs} setLastReadTs={setLastReadTs} />
       {role === "admin" && adminUnlocked && toast && (
@@ -4401,7 +4699,7 @@ function App() {
                 })}
               </nav>
               <nav className="app-nav app-nav-secondary">
-                {CUSTOMER_TABS.filter((t) => ["gallery", "contact"].includes(t.id)).map((t) => {
+                {CUSTOMER_TABS.filter((t) => ["gallery", "contact", "profile"].includes(t.id)).map((t) => {
                   const Icon = t.icon;
                   const active = tab === t.id;
                   return <button key={t.id} onClick={() => setTab(t.id)} className={"nav-btn" + (active ? " active" : "")}><Icon size={15} /> {t.label}</button>;
@@ -4430,6 +4728,13 @@ function App() {
           )}
           {role === "customer" && tab === "myorders" && <MyOrdersView myName={myName} orders={orders} config={config} qrCode={qrCode} />}
           {role === "customer" && tab === "contact" && <ContactView config={config} />}
+          {role === "customer" && tab === "profile" && (
+            <ProfileView
+              myName={myName} setMyName={setMyName} myCustomerId={myCustomerId}
+              dogs={dogs} setDogs={setDogs} orders={orders} setOrders={setOrders} gallery={gallery} setGallery={setGallery}
+              allAddresses={addresses} setAllAddresses={setAddresses} onGoToDogs={() => setTab("dogs")}
+            />
+          )}
           {role === "customer" && tab === "gallery" && <GalleryView myName={myName} myCustomerId={myCustomerId} dogs={dogs} gallery={gallery} setGallery={setGallery} config={config} />}
 
           {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} onGoToOrders={goToOrdersFiltered} onRefresh={refresh} />}
@@ -4457,7 +4762,7 @@ function App() {
   );
 }
 
-function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName, openAuth, signOut, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs }) {
+function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName, openAuth, signOut, goToProfile, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs }) {
   const unreadCount = notifications.filter((n) => n.ts > lastReadTs).length;
   return (
     <header className="app-header">
@@ -4506,9 +4811,9 @@ function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName,
           {role === "customer" && (
             myName ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface-muted)", borderRadius: 980, padding: "7px 12px" }}>
+                <button onClick={goToProfile} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface-muted)", border: "none", borderRadius: 980, padding: "7px 12px", cursor: "pointer" }}>
                   <CircleUser size={15} /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{myName}</span>
-                </div>
+                </button>
                 <Btn small variant="ghost" onClick={signOut}><LogOut size={13} /> Log out</Btn>
               </div>
             ) : (
@@ -4625,6 +4930,12 @@ function Shell({ children, theme }) {
         .notif-dot { position: absolute; top: -4px; right: -4px; background: var(--clay); color: #fff; font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0 3px; font-family: var(--font-mono); }
         .notif-dropdown { position: absolute; top: 42px; right: 0; width: 300px; max-height: 360px; overflow-y: auto; background: var(--surface); border: 1px solid var(--ring); border-radius: 16px; box-shadow: 0 20px 48px -16px rgba(0,0,0,0.35); z-index: 50; }
         .toast-banner { position: fixed; top: 76px; right: 20px; background: var(--ink); color: var(--btn-primary-fg); padding: 12px 16px; border-radius: 14px; font-size: 13.5px; display: flex; align-items: center; gap: 8px; box-shadow: 0 16px 40px -12px rgba(0,0,0,0.4); z-index: 60; cursor: pointer; max-width: min(320px, calc(100vw - 40px)); }
+        @keyframes authModalEnter {
+          from { opacity: 0; transform: translateY(10px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .auth-modal-enter { animation: authModalEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+        @media (prefers-reduced-motion: reduce) { .auth-modal-enter { animation: none; } }
         .chat-fab { position: fixed; bottom: 20px; right: 20px; width: 54px; height: 54px; border-radius: 50%; background: var(--ink); color: var(--btn-primary-fg); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 12px 28px -8px rgba(0,0,0,0.4); z-index: 70; }
         .chat-panel { position: fixed; bottom: 84px; right: 20px; width: min(340px, calc(100vw - 32px)); height: min(460px, calc(100vh - 140px)); background: var(--surface); border: 1px solid var(--ring); border-radius: 20px; box-shadow: 0 24px 60px -20px rgba(0,0,0,0.4); z-index: 70; display: flex; flex-direction: column; overflow: hidden; }
         .chat-chip { text-align: left; border: 1px solid var(--ring-strong); background: var(--surface); color: var(--ink); border-radius: 12px; padding: 8px 11px; font-size: 12.5px; cursor: pointer; }
