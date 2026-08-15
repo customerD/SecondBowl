@@ -386,6 +386,20 @@ const formatAge = (totalMonths) => {
   if (m > 0 || y === 0) parts.push(`${m} ${m === 1 ? "month" : "months"}`);
   return parts.join(" ");
 };
+// Whole months between a date of birth and today -- used so a dog's age
+// keeps advancing on its own once a birth date is on file, instead of
+// staying frozen at whatever number was entered when the dog was added.
+const monthsBetween = (dobStr) => {
+  const dob = new Date(dobStr + "T00:00:00");
+  if (isNaN(dob.getTime())) return 0;
+  const now = new Date();
+  let months = (now.getFullYear() - dob.getFullYear()) * 12 + (now.getMonth() - dob.getMonth());
+  if (now.getDate() < dob.getDate()) months -= 1;
+  return Math.max(0, months);
+};
+// The age actually used for feeding calculations: computed fresh from the
+// date of birth when one's on file, otherwise the directly-entered age.
+const effectiveAgeMonths = (dog) => (dog.dob ? monthsBetween(dog.dob) : dog.ageMonths);
 const haversineKm = (lat1, lon1, lat2, lon2) => {
   const toRad = (d) => (d * Math.PI) / 180;
   const R = 6371;
@@ -926,13 +940,14 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
   const [form, setForm] = useState(null);
   const [justAdded, setJustAdded] = useState(null);
 
-  const startNew = () => { setJustAdded(null); setForm({ id: null, name: "", breed: breeds[0]?.name || "", ageYears: 1, ageMonthsPart: 0, weightKg: 15, activity: "medium" }); };
-  const startEdit = (dog) => { setJustAdded(null); setForm({ ...dog, ageYears: Math.floor(dog.ageMonths / 12), ageMonthsPart: dog.ageMonths % 12 }); };
+  const startNew = () => { setJustAdded(null); setForm({ id: null, name: "", breed: breeds[0]?.name || "", ageMode: "years", ageYears: 1, ageMonthsPart: 0, dob: "", weightKg: 15, activity: "medium" }); };
+  const startEdit = (dog) => { setJustAdded(null); setForm({ ...dog, ageMode: dog.dob ? "dob" : "years", ageYears: Math.floor(dog.ageMonths / 12), ageMonthsPart: dog.ageMonths % 12, dob: dog.dob || "" }); };
 
   const save = async () => {
     if (!form.name.trim()) return;
-    const ageMonths = Math.max(1, form.ageYears * 12 + form.ageMonthsPart);
-    const clean = { name: form.name, breed: form.breed, weightKg: form.weightKg, activity: form.activity, ageMonths };
+    const usingDob = form.ageMode === "dob" && form.dob;
+    const ageMonths = usingDob ? Math.max(0, monthsBetween(form.dob)) : Math.max(1, form.ageYears * 12 + form.ageMonthsPart);
+    const clean = { name: form.name, breed: form.breed, weightKg: form.weightKg, activity: form.activity, ageMonths, dob: usingDob ? form.dob : "" };
     let next, savedDog;
     if (form.id) {
       next = dogs.map((d) => (d.id === form.id ? { ...d, ...clean } : d));
@@ -989,7 +1004,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
             </div>
             <div style={{ marginTop: 10, fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7 }}>
               <div>{dog.breed}</div>
-              <div>{formatAge(dog.ageMonths)} &middot; {dog.weightKg} kg &middot; {ACTIVITY_LABEL[dog.activity]} activity</div>
+              <div>{formatAge(effectiveAgeMonths(dog))} &middot; {dog.weightKg} kg &middot; {ACTIVITY_LABEL[dog.activity]} activity</div>
             </div>
           </Card>
         ))}
@@ -1015,8 +1030,20 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
                 </select>
               </Field>
             </div>
-            <Field label="Age &mdash; years"><input type="number" min={0} max={30} style={inputStyle} value={form.ageYears} onChange={(e) => setForm({ ...form, ageYears: Number(e.target.value) })} /></Field>
-            <Field label="Age &mdash; months"><input type="number" min={0} max={11} style={inputStyle} value={form.ageMonthsPart} onChange={(e) => setForm({ ...form, ageMonthsPart: Math.max(0, Math.min(11, Number(e.target.value))) })} /></Field>
+            <Field label="How old is your dog?">
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" onClick={() => setForm({ ...form, ageMode: "years" })} className={"date-chip" + (form.ageMode !== "dob" ? " active" : "")}>Age in years/months</button>
+                <button type="button" onClick={() => setForm({ ...form, ageMode: "dob" })} className={"date-chip" + (form.ageMode === "dob" ? " active" : "")}>Date of birth</button>
+              </div>
+            </Field>
+            {form.ageMode === "dob" ? (
+              <Field label="Date of birth"><input type="date" max={todayStr()} style={inputStyle} value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></Field>
+            ) : (
+              <>
+                <Field label="Age &mdash; years"><input type="number" min={0} max={30} style={inputStyle} value={form.ageYears} onChange={(e) => setForm({ ...form, ageYears: Number(e.target.value) })} /></Field>
+                <Field label="Age &mdash; months"><input type="number" min={0} max={11} style={inputStyle} value={form.ageMonthsPart} onChange={(e) => setForm({ ...form, ageMonthsPart: Math.max(0, Math.min(11, Number(e.target.value))) })} /></Field>
+              </>
+            )}
             <Field label="Weight (kg)"><input type="number" min={1} step="0.5" style={inputStyle} value={form.weightKg} onChange={(e) => setForm({ ...form, weightKg: Number(e.target.value) })} /></Field>
             <Field label="Activity level">
               <select style={inputStyle} value={form.activity} onChange={(e) => setForm({ ...form, activity: e.target.value })}>
@@ -1462,7 +1489,7 @@ function PhoneGate({ myName, resolved, onResolved, phone, loaded, onPhoneChange 
   // Once a phone is on file, resolve immediately -- no need to reconfirm
   // it on every order. Only asks if it's genuinely missing.
   useEffect(() => {
-    if (!loaded || resolved) return;
+    if (!loaded || resolved?.ok) return;
     if (phone) onResolved({ ok: true, phone });
     else setEditing(true);
   }, [loaded, phone]);
@@ -1481,17 +1508,9 @@ function PhoneGate({ myName, resolved, onResolved, phone, loaded, onPhoneChange 
 
   if (!loaded) return null;
 
-  if (resolved?.ok && phone && !editing) {
-    return (
-      <Card style={{ marginBottom: 16, background: "var(--tone-good-bg)", border: "none" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, flexWrap: "wrap" }}>
-          <Phone size={16} />
-          We&apos;ll use <b>{phone}</b> for this order.
-          <button onClick={() => { setDraftPhone(phone); setEditing(true); }} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, textDecoration: "underline" }}>Change number</button>
-        </div>
-      </Card>
-    );
-  }
+  // Once resolved with a phone already on file, there's nothing to show --
+  // it's used silently. Changing it lives on the Profile page now, not here.
+  if (resolved?.ok && phone && !editing) return null;
 
   return (
     <Card style={{ marginBottom: 16 }}>
@@ -1574,6 +1593,7 @@ function OrderFoodView({ myName, myCustomerId, dogs, ingredients, breeds, engine
   useEffect(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [stage]);
 
   const dog = myDogs.find((d) => d.id === dogId);
+  const dogForCalc = dog ? { ...dog, ageMonths: effectiveAgeMonths(dog) } : dog;
   const dates = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i));
   const date = dates[dateIdx];
 
@@ -1595,10 +1615,10 @@ function OrderFoodView({ myName, myCustomerId, dogs, ingredients, breeds, engine
       .filter((i) => selected.has(i.id) && i.available)
       .sort((a, b) => a.displayOrder - b.displayOrder)
       .map((i) => {
-        const qty = i.quantityAdjustable ? (customQty[i.id] ?? i.default) : calcAutoQty(i, dog, breeds, engine);
+        const qty = i.quantityAdjustable ? (customQty[i.id] ?? i.default) : calcAutoQty(i, dogForCalc, breeds, engine);
         return { id: i.id, name: i.name, unit: i.unit, qty, pricePerUnit: i.pricePerUnit };
       });
-  }, [dog, selected, customQty, ingredients, breeds, engine]);
+  }, [dog, dogForCalc, selected, customQty, ingredients, breeds, engine]);
 
   const foodTotal = preview.reduce((s, p) => s + p.qty * p.pricePerUnit, 0);
   const deliveryFee = locationResolved?.deliveryFee || 0;
@@ -1614,7 +1634,7 @@ function OrderFoodView({ myName, myCustomerId, dogs, ingredients, breeds, engine
       customerName: myName,
       customerId: myCustomerId,
       dogId: dog.id,
-      dogSnapshot: { name: dog.name, breed: dog.breed, ageMonths: dog.ageMonths, weightKg: dog.weightKg, activity: dog.activity },
+      dogSnapshot: { name: dog.name, breed: dog.breed, ageMonths: effectiveAgeMonths(dog), weightKg: dog.weightKg, activity: dog.activity },
       date, session, servingTime: sessInfo.servingTime,
       ingredients: preview,
       foodTotal: Math.round(foodTotal),
