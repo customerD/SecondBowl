@@ -1523,12 +1523,51 @@ function resolveAuthorPhoto(profilePhotos, authorId, snapshotPhoto) {
   return (live ? live.photoDataUrl : snapshotPhoto) || "";
 }
 
-function CommunityPostCard({ post, onOpen, profilePhotos }) {
+function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profilePhotos, onToggleLike, onAddComment, onRequireLogin, onFilterBreed, onDeletePost }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [viewingImages, setViewingImages] = useState(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
   const images = (post.attachments || []).filter((a) => a.type !== "pdf");
   const initial = (post.authorName || "?").trim().charAt(0).toUpperCase();
   const displayPhoto = resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto);
+  const iLiked = myCustomerId && (likes || []).some((l) => l.postId === post.id && l.userId === myCustomerId);
+  const isMine = myCustomerId && post.authorId === myCustomerId;
+  const postComments = (comments || []).filter((c) => c.postId === post.id).sort((a, b) => a.createdAt - b.createdAt);
+
+  const LONG_CONTENT = 140;
+  const isLong = (post.content || "").length > LONG_CONTENT;
+  const shownContent = expanded || !isLong ? post.content : `${post.content.slice(0, LONG_CONTENT).trimEnd()}\u2026`;
+
+  const clickLike = () => {
+    if (!myName) { onRequireLogin("like this post"); return; }
+    onToggleLike(post.id);
+  };
+  const submitComment = () => {
+    if (!myName) { onRequireLogin("comment"); return; }
+    if (!commentText.trim()) return;
+    onAddComment(post.id, commentText.trim());
+    setCommentText("");
+  };
+  const share = async () => {
+    const url = `${window.location.origin}${window.location.pathname}?post=${post.id}`;
+    const shareData = { title: post.title, text: post.content ? post.content.slice(0, 140) : post.title, url };
+    if (navigator.share) {
+      try { await navigator.share(shareData); return; } catch { /* cancelled or unsupported -- fall through to copy */ }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2500);
+    } catch {}
+  };
+
   return (
-    <div className="insta-post" onClick={() => onOpen(post.id)}>
+    <div className="insta-post">
+      {viewingImages !== null && <CommunityImageLightbox images={images.map((a) => a.dataUrl)} startIndex={viewingImages} onClose={() => setViewingImages(null)} />}
       <div className="insta-post-header">
         {displayPhoto ? (
           <img src={displayPhoto} alt="" className="insta-avatar" style={{ objectFit: "cover" }} />
@@ -1538,13 +1577,16 @@ function CommunityPostCard({ post, onOpen, profilePhotos }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="insta-username">{post.authorName}</div>
           <div className="insta-post-meta">
-            {post.topic}{post.breed && post.breed !== BREED_ALL ? ` · ${post.breed}` : ""}
+            {post.topic}
+            {post.breed && post.breed !== BREED_ALL && (
+              <> &middot; <button onClick={() => onFilterBreed(post.breed)} style={{ background: "none", border: "none", padding: 0, color: "inherit", font: "inherit", cursor: "pointer", textDecoration: "underline" }}>{post.breed}</button></>
+            )}
           </div>
         </div>
       </div>
 
       {images.length > 0 ? (
-        <div className="insta-image-wrap">
+        <div className="insta-image-wrap" onClick={() => setViewingImages(0)} style={{ cursor: "pointer" }}>
           <img src={images[0].dataUrl} alt="" />
           {images.length > 1 && <span className="insta-multi-badge"><ImageIcon size={11} /> {images.length}</span>}
         </div>
@@ -1555,190 +1597,89 @@ function CommunityPostCard({ post, onOpen, profilePhotos }) {
       )}
 
       <div className="insta-actions">
-        <span><Heart size={20} /> {post.likeCount || 0}</span>
-        <span><MessageCircle size={20} /> {post.commentCount || 0}</span>
-        <span style={{ marginLeft: "auto" }}><Share2 size={18} /></span>
+        <button onClick={clickLike} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: iLiked ? "var(--clay)" : "var(--ink)" }}>
+          <Heart size={20} fill={iLiked ? "var(--clay)" : "none"} /> <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{post.likeCount || 0}</span>
+        </button>
+        <button onClick={() => setShowComments((s) => !s)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: "var(--ink)" }}>
+          <MessageCircle size={20} /> <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{post.commentCount || 0}</span>
+        </button>
+        <button onClick={share} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginLeft: "auto", color: "var(--ink)" }}>
+          {shareCopied ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>Copied!</span> : <Share2 size={18} />}
+        </button>
       </div>
 
       <div className="insta-caption">
-        <b>{post.authorName}</b> {images.length > 0 && post.title}
+        <b>{post.authorName}</b> {images.length > 0 && <>{post.title}. </>}
+        {shownContent}
+        {isLong && (
+          <button onClick={() => setExpanded((e) => !e)} style={{ background: "none", border: "none", padding: 0, marginLeft: 4, color: "var(--muted)", cursor: "pointer", font: "inherit" }}>
+            {expanded ? "less" : "more"}
+          </button>
+        )}
       </div>
-      {post.content && <div className="insta-excerpt">{post.content}</div>}
-      {post.commentCount > 0 && <div className="insta-view-comments">View all {post.commentCount} comment{post.commentCount === 1 ? "" : "s"}</div>}
-      <div className="insta-timestamp">{fmtDateLabel(toDateStr(new Date(post.createdAt)))}</div>
-    </div>
-  );
-}
 
-function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, profilePhotos, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed, onDeletePost }) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [commentText, setCommentText] = useState("");
-  const [viewingImages, setViewingImages] = useState(null);
-  const [shareCopied, setShareCopied] = useState(false);
+      {post.dogDetails && <div style={{ padding: "4px 14px 0", fontSize: 12.5, color: "var(--muted)", fontStyle: "italic" }}>{post.dogDetails}</div>}
 
-  const postComments = comments.filter((c) => c.postId === post.id).sort((a, b) => a.createdAt - b.createdAt);
-  const iLiked = myCustomerId && likes.some((l) => l.postId === post.id && l.userId === myCustomerId);
+      {!showComments && post.commentCount > 0 && (
+        <button onClick={() => setShowComments(true)} className="insta-view-comments" style={{ background: "none", border: "none", width: "100%", textAlign: "left", cursor: "pointer" }}>
+          View all {post.commentCount} comment{post.commentCount === 1 ? "" : "s"}
+        </button>
+      )}
 
-  const related = allPosts
-    .filter((p) => p.id !== post.id && p.status === "approved")
-    .map((p) => ({ post: p, score: (p.breed === post.breed && post.breed !== BREED_ALL ? 2 : 0) + (p.topic === post.topic ? 1 : 0) }))
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map((x) => x.post);
-
-  const postUrl = () => `${window.location.origin}${window.location.pathname}?post=${post.id}`;
-
-  const share = async () => {
-    const url = postUrl();
-    const shareData = { title: post.title, text: post.content ? post.content.slice(0, 140) : post.title, url };
-    if (navigator.share) {
-      try { await navigator.share(shareData); return; } catch { /* cancelled or unsupported mid-flow -- fall through to copy */ }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2500);
-    } catch {}
-  };
-
-  const submitComment = async () => {
-    if (!myName) { onRequireLogin("comment"); return; }
-    if (!commentText.trim()) return;
-    await onAddComment(post.id, commentText.trim());
-    setCommentText("");
-  };
-
-  const clickLike = () => {
-    if (!myName) { onRequireLogin("like this post"); return; }
-    onToggleLike(post.id);
-  };
-
-  const postImages = (post.attachments || []).filter((a) => a.type !== "pdf");
-  const postPdfs = (post.attachments || []).filter((a) => a.type === "pdf");
-
-  return (
-    <div>
-      {viewingImages !== null && <CommunityImageLightbox images={postImages.map((a) => a.dataUrl)} startIndex={viewingImages} onClose={() => setViewingImages(null)} />}
-      <Btn small variant="ghost" onClick={onBack} style={{ marginBottom: 14 }}>&larr; Back to Community</Btn>
-
-      <Card style={{ maxWidth: 640 }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          <Pill>{post.topic}</Pill>
-          {post.breed && post.breed !== BREED_ALL && (
-            <button onClick={() => onFilterBreed(post.breed)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-              <Pill tone="good">{post.breed}</Pill>
-            </button>
-          )}
-        </div>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, marginBottom: 8 }}>{post.title}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-          {resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto) ? (
-            <img src={resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto)} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
-          ) : (
-            <div style={{ width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11, background: avatarColorFor(post.authorName) }}>
-              {(post.authorName || "?").trim().charAt(0).toUpperCase()}
-            </div>
-          )}
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>
-            By {post.authorName} &middot; {fmtDateLabel(toDateStr(new Date(post.createdAt)))}
-            {post.updatedAt && post.updatedAt !== post.createdAt && <> &middot; edited</>}
-          </div>
-        </div>
-
-        {post.dogDetails && (
-          <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14, fontStyle: "italic" }}>{post.dogDetails}</div>
-        )}
-
-        {postImages.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: postImages.length === 1 ? "1fr" : "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 16 }}>
-            {postImages.map((att, i) => (
-              <img key={i} src={att.dataUrl} alt="" onClick={() => setViewingImages(i)} style={{ width: "100%", borderRadius: 12, cursor: "pointer", display: "block", maxHeight: postImages.length === 1 ? 420 : 180, objectFit: "cover" }} />
-            ))}
-          </div>
-        )}
-
-        {postPdfs.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-            {postPdfs.map((att, i) => (
-              <a key={i} href={att.dataUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--surface-muted)", borderRadius: 12, textDecoration: "none", color: "var(--ink)" }}>
-                <FileText size={18} color="var(--muted)" />
-                <span style={{ fontSize: 13.5, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
-                <span style={{ fontSize: 12, color: "var(--leaf)" }}>View</span>
-              </a>
-            ))}
-          </div>
-        )}
-
-        {post.content && <p style={{ fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 20 }}>{post.content}</p>}
-
-        <div style={{ display: "flex", gap: 10, paddingTop: 16, borderTop: "1px solid var(--ring)", flexWrap: "wrap" }}>
-          <Btn small variant={iLiked ? "accent" : "ghost"} onClick={clickLike}>&hearts; {post.likeCount || 0}</Btn>
-          <Btn small variant="ghost" onClick={share}>{shareCopied ? "Link copied!" : <><Link2 size={13} /> Share</>}</Btn>
-          {myCustomerId && post.authorId === myCustomerId && (
-            confirmingDelete ? (
-              <>
-                <Btn small variant="danger" onClick={() => onDeletePost(post.id)}><Trash2 size={13} /> Yes, delete it</Btn>
-                <Btn small variant="ghost" onClick={() => setConfirmingDelete(false)}>Cancel</Btn>
-              </>
-            ) : (
-              <Btn small variant="ghost" onClick={() => setConfirmingDelete(true)}><Trash2 size={13} /> Delete post</Btn>
-            )
-          )}
-        </div>
-      </Card>
-
-      <Card style={{ maxWidth: 640, marginTop: 16 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 14 }}>Comments ({postComments.length})</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 16 }}>
+      {showComments && (
+        <div style={{ padding: "10px 14px 0" }}>
           {postComments.length === 0 ? (
-            <p style={{ fontSize: 13.5, color: "var(--muted)", margin: 0 }}>No comments yet -- be the first to share your thoughts.</p>
-          ) : postComments.map((c) => (
-            <div key={c.id} style={{ display: "flex", gap: 8 }}>
-              {resolveAuthorPhoto(profilePhotos, c.userId, c.userPhoto) ? (
-                <img src={resolveAuthorPhoto(profilePhotos, c.userId, c.userPhoto)} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
-              ) : (
-                <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11.5, flexShrink: 0, marginTop: 1, background: avatarColorFor(c.userName) }}>
-                  {(c.userName || "?").trim().charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}>
-                  <b>{c.userName}</b>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(c.createdAt)}</span>
-                </div>
-                <div style={{ fontSize: 14 }}>{c.text}</div>
-              </div>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>No comments yet -- be the first to share your thoughts.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
+              {postComments.map((c) => {
+                const cPhoto = resolveAuthorPhoto(profilePhotos, c.userId, c.userPhoto);
+                return (
+                  <div key={c.id} style={{ display: "flex", gap: 8 }}>
+                    {cPhoto ? (
+                      <img src={cPhoto} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
+                    ) : (
+                      <div style={{ width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 10, flexShrink: 0, marginTop: 1, background: avatarColorFor(c.userName) }}>
+                        {(c.userName || "?").trim().charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13 }}><b>{c.userName}</b> {c.text}</div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
-        {myName ? (
-          <div style={{ display: "flex", gap: 8 }}>
-            <input style={{ ...inputStyle, flex: 1 }} value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitComment()} placeholder="Add a comment..." />
-            <Btn small onClick={submitComment}>Post</Btn>
-          </div>
-        ) : (
-          <Btn small variant="ghost" onClick={() => onRequireLogin("comment")}>Sign in to comment</Btn>
-        )}
-      </Card>
-
-      {related.length > 0 && (
-        <div style={{ marginTop: 24, maxWidth: 640 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>
-            {post.breed !== BREED_ALL ? `More ${post.breed} Community posts` : "Related posts"}
-          </div>
-          <div className="responsive-grid">
-            {related.map((p) => <CommunityPostCard key={p.id} post={p} onOpen={() => onOpenPost(p.id)} profilePhotos={profilePhotos} />)}
-          </div>
+          )}
+          {myName ? (
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <input style={{ ...inputStyle, flex: 1, padding: "8px 12px", fontSize: 13.5 }} value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitComment()} placeholder="Add a comment..." />
+              <Btn small onClick={submitComment}>Post</Btn>
+            </div>
+          ) : (
+            <button onClick={() => onRequireLogin("comment")} style={{ background: "none", border: "none", padding: 0, marginBottom: 10, color: "var(--leaf)", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>Sign in to comment</button>
+          )}
         </div>
       )}
+
+      <div className="insta-timestamp" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{fmtDateLabel(toDateStr(new Date(post.createdAt)))}</span>
+        {isMine && (
+          confirmingDelete ? (
+            <span style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => onDeletePost(post.id)} style={{ background: "none", border: "none", padding: 0, color: "var(--clay)", cursor: "pointer", font: "inherit", textTransform: "none" }}>Yes, delete</button>
+              <button onClick={() => setConfirmingDelete(false)} style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", textTransform: "none" }}>Cancel</button>
+            </span>
+          ) : (
+            <button onClick={() => setConfirmingDelete(true)} style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", textTransform: "none" }}>Delete</button>
+          )
+        )}
+      </div>
     </div>
   );
 }
 
 function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
-  const [view, setView] = useState("list"); // list | post | create
-  const [openPostId, setOpenPostId] = useState(null);
+  const [view, setView] = useState("list"); // list | create
+  const [sharedPostId, setSharedPostId] = useState(null); // set when arriving via a shared post link
   const [topicFilter, setTopicFilter] = useState("");
   const [breedFilter, setBreedFilter] = useState("");
   const [showMine, setShowMine] = useState(false);
@@ -1746,8 +1687,8 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
 
   useEffect(() => {
     if (initialPostId) {
-      setOpenPostId(initialPostId);
-      setView("post");
+      setSharedPostId(initialPostId);
+      setView("list");
       onConsumeInitialPost?.();
     }
   }, [initialPostId]);
@@ -1764,13 +1705,14 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
   const approved = communityPosts.filter((p) => p.status === "approved");
   const mine = communityPosts.filter((p) => p.authorId === myCustomerId);
 
-  const visible = (showMine ? mine : approved)
-    .filter((p) => !topicFilter || p.topic === topicFilter)
-    .filter((p) => !breedFilter || p.breed === breedFilter)
-    .sort((a, b) => b.createdAt - a.createdAt);
+  const sharedPost = sharedPostId ? communityPosts.find((p) => p.id === sharedPostId) : null;
+  const visible = sharedPost
+    ? [sharedPost]
+    : (showMine ? mine : approved)
+        .filter((p) => !topicFilter || p.topic === topicFilter)
+        .filter((p) => !breedFilter || p.breed === breedFilter)
+        .sort((a, b) => b.createdAt - a.createdAt);
 
-  const openPost = (id) => { setOpenPostId(id); setView("post"); };
-  const backToList = () => { setView("list"); setOpenPostId(null); };
   const requireLogin = (action) => setLoginPrompt(action);
 
   const startCreate = () => {
@@ -1815,7 +1757,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
     await persist(K.communityPosts, nextPosts);
   };
 
-  const filterByBreed = (breed) => { setBreedFilter(breed); setShowMine(false); backToList(); };
+  const filterByBreed = (breed) => { setSharedPostId(null); setBreedFilter(breed); setShowMine(false); setView("list"); };
 
   const deletePost = async (postId) => {
     const nextPosts = communityPosts.filter((p) => p.id !== postId);
@@ -1827,10 +1769,8 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
     const nextLikes = communityLikes.filter((l) => l.postId !== postId);
     setCommunityLikes(nextLikes);
     await persist(K.communityLikes, nextLikes);
-    backToList();
+    if (sharedPostId === postId) setSharedPostId(null);
   };
-
-  const openPostObj = openPostId ? communityPosts.find((p) => p.id === openPostId) : null;
 
   if (!communityLoaded) {
     return <div><SectionTitle eyebrow="Community" title="Community" /><LoadingScreen /></div>;
@@ -1847,14 +1787,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
       )}
 
       {view === "create" ? (
-        <CreatePostForm myName={myName} dogs={dogs} topics={activeTopics} onSubmit={submitPost} onCancel={backToList} />
-      ) : view === "post" && openPostObj ? (
-        <CommunityPostDetail
-          post={openPostObj} allPosts={communityPosts} comments={communityComments} likes={communityLikes}
-          myName={myName} myCustomerId={myCustomerId} profilePhotos={profilePhotos} config={config}
-          onBack={backToList} onOpenPost={openPost} onRequireLogin={requireLogin}
-          onToggleLike={toggleLike} onAddComment={addComment} onFilterBreed={filterByBreed} onDeletePost={deletePost}
-        />
+        <CreatePostForm myName={myName} dogs={dogs} topics={activeTopics} onSubmit={submitPost} onCancel={() => setView("list")} />
       ) : (
         <>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
@@ -1862,37 +1795,51 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
             <Btn onClick={startCreate}><Plus size={15} /> Share a post</Btn>
           </div>
 
-          <Card style={{ marginBottom: 18 }}>
-            <div className="form-grid-2">
-              <Field label="Topic">
-                <select style={inputStyle} value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)}>
-                  <option value="">All topics</option>
-                  {activeTopics.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Dog breed">
-                <select style={inputStyle} value={breedFilter} onChange={(e) => setBreedFilter(e.target.value)}>
-                  <option value="">All breeds</option>
-                  <option value={BREED_ALL}>{BREED_ALL}</option>
-                  {breeds.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
-                </select>
-              </Field>
-            </div>
-            {myName && (
-              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                <button onClick={() => setShowMine(false)} className={"date-chip" + (!showMine ? " active" : "")}>Community</button>
-                <button onClick={() => setShowMine(true)} className={"date-chip" + (showMine ? " active" : "")}>My posts</button>
+          {sharedPost ? (
+            <Card style={{ marginBottom: 18, maxWidth: 470, marginLeft: "auto", marginRight: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5 }}>
+                <span>Viewing a shared post</span>
+                <button onClick={() => setSharedPostId(null)} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", fontSize: 13.5, textDecoration: "underline" }}>Show all Community posts</button>
               </div>
-            )}
-          </Card>
+            </Card>
+          ) : (
+            <Card style={{ marginBottom: 18 }}>
+              <div className="form-grid-2">
+                <Field label="Topic">
+                  <select style={inputStyle} value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)}>
+                    <option value="">All topics</option>
+                    {activeTopics.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Dog breed">
+                  <select style={inputStyle} value={breedFilter} onChange={(e) => setBreedFilter(e.target.value)}>
+                    <option value="">All breeds</option>
+                    <option value={BREED_ALL}>{BREED_ALL}</option>
+                    {breeds.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
+                  </select>
+                </Field>
+              </div>
+              {myName && (
+                <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                  <button onClick={() => setShowMine(false)} className={"date-chip" + (!showMine ? " active" : "")}>Community</button>
+                  <button onClick={() => setShowMine(true)} className={"date-chip" + (showMine ? " active" : "")}>My posts</button>
+                </div>
+              )}
+            </Card>
+          )}
 
           {visible.length === 0 ? (
-            <Card><p style={{ margin: 0, color: "var(--muted)" }}>{showMine ? "You haven't posted anything yet." : "No posts match these filters yet -- be the first to share one!"}</p></Card>
+            <Card><p style={{ margin: 0, color: "var(--muted)" }}>{sharedPost === null && sharedPostId ? "This post isn't available anymore." : showMine ? "You haven't posted anything yet." : "No posts match these filters yet -- be the first to share one!"}</p></Card>
           ) : (
             <div className="insta-feed">
               {visible.map((p) => (
                 <div key={p.id} style={{ position: "relative" }}>
-                  <CommunityPostCard post={p} onOpen={openPost} profilePhotos={profilePhotos} />
+                  <CommunityPostCard
+                    post={p} comments={communityComments} likes={communityLikes}
+                    myName={myName} myCustomerId={myCustomerId} profilePhotos={profilePhotos}
+                    onToggleLike={toggleLike} onAddComment={addComment} onRequireLogin={requireLogin}
+                    onFilterBreed={filterByBreed} onDeletePost={deletePost}
+                  />
                   {showMine && p.status !== "approved" && (
                     <div style={{ position: "absolute", top: 10, right: 10 }}>
                       <Pill tone={p.status === "rejected" ? "bad" : "warn"}>{p.status === "rejected" ? "Not approved" : "Pending review"}</Pill>
@@ -3050,23 +2997,41 @@ function AdminCommunity({ communityPosts, setCommunityPosts, communityLoaded, lo
   const reject = (p) => { save(communityPosts.map((x) => (x.id === p.id ? { ...x, status: "rejected" } : x))); logAudit(`Rejected Community post "${p.title}" from ${p.authorName}`); };
   const remove = (p) => { save(communityPosts.filter((x) => x.id !== p.id)); logAudit(`Deleted Community post "${p.title}" from ${p.authorName}`); };
 
-  const PostCard = ({ p, actions }) => (
-    <Card style={{ padding: 0, overflow: "hidden" }}>
-      {p.images && p.images.length > 0 && (
-        <img src={p.images[0]} alt="" onClick={() => setViewingImages(p.images)} style={{ width: "100%", height: 150, objectFit: "cover", display: "block", cursor: "pointer" }} />
-      )}
-      <div style={{ padding: 12 }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-          <Pill>{p.topic}</Pill>
-          {p.breed && p.breed !== BREED_ALL && <Pill tone="good">{p.breed}</Pill>}
+  const PostCard = ({ p, actions }) => {
+    const images = (p.attachments || []).filter((a) => a.type !== "pdf");
+    const pdfs = (p.attachments || []).filter((a) => a.type === "pdf");
+    return (
+      <Card style={{ padding: 0, overflow: "hidden" }}>
+        {images.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: images.length === 1 ? "1fr" : "repeat(auto-fill, minmax(100px, 1fr))", gap: 2 }}>
+            {images.map((img, i) => (
+              <img key={i} src={img.dataUrl} alt="" onClick={() => setViewingImages(images.map((a) => a.dataUrl))} style={{ width: "100%", height: images.length === 1 ? 220 : 110, objectFit: "cover", display: "block", cursor: "pointer" }} />
+            ))}
+          </div>
+        )}
+        <div style={{ padding: 14 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            <Pill>{p.topic}</Pill>
+            {p.breed && p.breed !== BREED_ALL && <Pill tone="good">{p.breed}</Pill>}
+          </div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 4 }}>{p.title}</div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>{p.authorName} &middot; {fmtDateTime(p.createdAt)}</div>
+          {p.dogDetails && <div style={{ fontSize: 12.5, color: "var(--muted)", fontStyle: "italic", marginBottom: 10 }}>{p.dogDetails}</div>}
+          {p.content && <div style={{ fontSize: 13.5, marginBottom: 10, whiteSpace: "pre-wrap" }}>{p.content}</div>}
+          {pdfs.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {pdfs.map((att, i) => (
+                <a key={i} href={att.dataUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--surface-muted)", borderRadius: 10, textDecoration: "none", color: "var(--ink)", fontSize: 12.5 }}>
+                  <FileText size={15} color="var(--muted)" /> {att.name || "Attached PDF"}
+                </a>
+              ))}
+            </div>
+          )}
+          {actions}
         </div>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{p.title}</div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>{p.authorName} &middot; {fmtDateTime(p.createdAt)}</div>
-        {p.content && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{p.content}</div>}
-        {actions}
-      </div>
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   if (!communityLoaded) {
     return <div><SectionTitle eyebrow="Admin" title="Community" /><LoadingScreen /></div>;
@@ -4983,7 +4948,6 @@ function App() {
   }, []);
 
   const tabs = role === "customer" ? CUSTOMER_TABS : ADMIN_TABS;
-  useEffect(() => { setTab(role === "customer" ? "order" : "dashboard"); }, [role]);
 
   useEffect(() => {
     if (role === "admin" && !loading && !qrCode && !qrPromptDismissed) {
