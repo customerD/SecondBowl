@@ -1069,7 +1069,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
    CUSTOMER: Saved delivery addresses (add once here, pick at order time)
    ========================================================================= */
 
-function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, gallery, setGallery, allAddresses, setAllAddresses, onGoToDogs }) {
+function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, gallery, setGallery, allAddresses, setAllAddresses, onMyPhoneChange, onGoToDogs }) {
   const [rec, setRec] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -1096,7 +1096,9 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
   };
 
   const savePhone = async () => {
-    await saveField({ phone: draftPhone.trim() });
+    const cleaned = draftPhone.trim();
+    await saveField({ phone: cleaned });
+    onMyPhoneChange?.(cleaned);
     setEditingPhone(false);
   };
   const saveEmail = async () => {
@@ -1535,7 +1537,7 @@ function PhoneGate({ myName, resolved, onResolved, phone, loaded, onPhoneChange 
    CUSTOMER: Order food (meal builder → payment → confirmation)
    ========================================================================= */
 
-function OrderFoodView({ myName, myCustomerId, dogs, ingredients, breeds, engine, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, qrCode, initialDogId, setOrders, allAddresses, setAllAddresses, goToOrders }) {
+function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhoneChange, dogs, ingredients, breeds, engine, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, qrCode, initialDogId, setOrders, allAddresses, setAllAddresses, goToOrders }) {
   const myDogs = dogs.filter((d) => d.owner === myName);
   const [dogId, setDogId] = useState(initialDogId || myDogs[0]?.id || "");
   const [dateIdx, setDateIdx] = useState(0);
@@ -1548,22 +1550,6 @@ function OrderFoodView({ myName, myCustomerId, dogs, ingredients, breeds, engine
   });
   const [locationResolved, setLocationResolved] = useState(null);
   const [phoneResolved, setPhoneResolved] = useState({ ok: false });
-  const [customerRec, setCustomerRec] = useState(null);
-  const [customerRecLoaded, setCustomerRecLoaded] = useState(false);
-
-  // Phone still lives on the customer record itself -- only addresses
-  // moved out into their own collection, so this fetch is now phone-only.
-  useEffect(() => {
-    let cancelled = false;
-    setCustomerRecLoaded(false);
-    (async () => {
-      if (!myName) { if (!cancelled) { setCustomerRec(null); setCustomerRecLoaded(true); } return; }
-      const rec = await getCustomerRecord(myName);
-      if (!cancelled) { setCustomerRec(rec); setCustomerRecLoaded(true); }
-    })();
-    return () => { cancelled = true; };
-  }, [myName]);
-  const gatePhone = customerRec?.phone || "";
 
   // Addresses come from the app-level collection now (loaded once at
   // startup alongside orders/dogs), filtered to just this customer.
@@ -1812,7 +1798,7 @@ function OrderFoodView({ myName, myCustomerId, dogs, ingredients, breeds, engine
     <div>
       <SectionTitle eyebrow="Customer" title="Order food" />
       <AddressGate myName={myName} myCustomerId={myCustomerId} locations={locations} resolved={locationResolved} onResolved={setLocationResolved} addresses={gateAddresses} loaded={gateAddressesLoaded} onAddressesChange={onGateAddressesChange} />
-      <PhoneGate myName={myName} resolved={phoneResolved} onResolved={setPhoneResolved} phone={gatePhone} loaded={customerRecLoaded} onPhoneChange={(p) => setCustomerRec((r) => ({ ...(r || {}), phone: p }))} />
+      <PhoneGate myName={myName} resolved={phoneResolved} onResolved={setPhoneResolved} phone={myPhone} loaded={myPhoneLoaded} onPhoneChange={onMyPhoneChange} />
 
       {!(locationResolved?.ok && phoneResolved.ok) ? null : (
         <>
@@ -4414,6 +4400,8 @@ function App() {
   const resetToken = urlParams.get("resetToken");
   const [myName, setMyName] = useState("");
   const [myCustomerId, setMyCustomerId] = useState("");
+  const [myPhone, setMyPhone] = useState("");
+  const [myPhoneLoaded, setMyPhoneLoaded] = useState(false);
   const [welcome, setWelcome] = useState(null); // { message, sub } | null
   const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : "order"));
   const [pendingDogId, setPendingDogId] = useState(null);
@@ -4484,11 +4472,14 @@ function App() {
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
-    if (!myName) { setMyCustomerId(""); return; }
+    if (!myName) { setMyCustomerId(""); setMyPhone(""); setMyPhoneLoaded(false); return; }
     let cancelled = false;
+    setMyPhoneLoaded(false);
     (async () => {
       const rec = await getCustomerRecord(myName);
       if (!rec || cancelled) return;
+      setMyPhone(rec.phone || "");
+      setMyPhoneLoaded(true);
       if (rec.customerId) {
         setMyCustomerId(rec.customerId);
       } else {
@@ -4814,7 +4805,8 @@ function App() {
           {role === "customer" && tab === "dogs" && <DogsView dogs={dogs} setDogs={setDogs} breeds={breeds} myName={myName} myCustomerId={myCustomerId} allAddresses={addresses} setAllAddresses={setAddresses} onContinue={goToOrderWithDog} />}
           {role === "customer" && tab === "order" && (
             <OrderFoodView
-              myName={myName} myCustomerId={myCustomerId} dogs={dogs} ingredients={ingredients} breeds={breeds} engine={engine}
+              myName={myName} myCustomerId={myCustomerId} myPhone={myPhone} myPhoneLoaded={myPhoneLoaded} onMyPhoneChange={setMyPhone}
+              dogs={dogs} ingredients={ingredients} breeds={breeds} engine={engine}
               config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots}
               slotOverrides={slotOverrides} locations={locations} qrCode={qrCode} initialDogId={pendingDogId}
               setOrders={setOrders} allAddresses={addresses} setAllAddresses={setAddresses} goToOrders={() => setTab("myorders")}
@@ -4826,7 +4818,7 @@ function App() {
             <ProfileView
               myName={myName} setMyName={setMyName} myCustomerId={myCustomerId}
               dogs={dogs} setDogs={setDogs} orders={orders} setOrders={setOrders} gallery={gallery} setGallery={setGallery}
-              allAddresses={addresses} setAllAddresses={setAddresses} onGoToDogs={() => setTab("dogs")}
+              allAddresses={addresses} setAllAddresses={setAddresses} onMyPhoneChange={setMyPhone} onGoToDogs={() => setTab("dogs")}
             />
           )}
           {role === "customer" && tab === "gallery" && <GalleryView myName={myName} myCustomerId={myCustomerId} dogs={dogs} gallery={gallery} setGallery={setGallery} config={config} />}
