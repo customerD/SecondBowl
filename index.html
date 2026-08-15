@@ -1414,7 +1414,8 @@ function CommunityPostCard({ post, onOpen }) {
   );
 }
 
-function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed }) {
+function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed, onDeletePost }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [viewingImages, setViewingImages] = useState(null);
   const [shareCopied, setShareCopied] = useState(false);
@@ -1491,9 +1492,19 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
 
         {post.content && <p style={{ fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 20 }}>{post.content}</p>}
 
-        <div style={{ display: "flex", gap: 10, paddingTop: 16, borderTop: "1px solid var(--ring)" }}>
+        <div style={{ display: "flex", gap: 10, paddingTop: 16, borderTop: "1px solid var(--ring)", flexWrap: "wrap" }}>
           <Btn small variant={iLiked ? "accent" : "ghost"} onClick={clickLike}>&hearts; {post.likeCount || 0}</Btn>
           <Btn small variant="ghost" onClick={share}>{shareCopied ? "Link copied!" : <><Link2 size={13} /> Share</>}</Btn>
+          {myCustomerId && post.authorId === myCustomerId && (
+            confirmingDelete ? (
+              <>
+                <Btn small variant="danger" onClick={() => onDeletePost(post.id)}><Trash2 size={13} /> Yes, delete it</Btn>
+                <Btn small variant="ghost" onClick={() => setConfirmingDelete(false)}>Cancel</Btn>
+              </>
+            ) : (
+              <Btn small variant="ghost" onClick={() => setConfirmingDelete(true)}><Trash2 size={13} /> Delete post</Btn>
+            )
+          )}
         </div>
       </Card>
 
@@ -1613,6 +1624,19 @@ function CommunityView({ myName, myCustomerId, dogs, breeds, config, communityTo
 
   const filterByBreed = (breed) => { setBreedFilter(breed); setShowMine(false); backToList(); };
 
+  const deletePost = async (postId) => {
+    const nextPosts = communityPosts.filter((p) => p.id !== postId);
+    setCommunityPosts(nextPosts);
+    await persist(K.communityPosts, nextPosts);
+    const nextComments = communityComments.filter((c) => c.postId !== postId);
+    setCommunityComments(nextComments);
+    await persist(K.communityComments, nextComments);
+    const nextLikes = communityLikes.filter((l) => l.postId !== postId);
+    setCommunityLikes(nextLikes);
+    await persist(K.communityLikes, nextLikes);
+    backToList();
+  };
+
   const openPostObj = openPostId ? communityPosts.find((p) => p.id === openPostId) : null;
 
   return (
@@ -1632,7 +1656,7 @@ function CommunityView({ myName, myCustomerId, dogs, breeds, config, communityTo
           post={openPostObj} allPosts={communityPosts} comments={communityComments} likes={communityLikes}
           myName={myName} myCustomerId={myCustomerId} config={config}
           onBack={backToList} onOpenPost={openPost} onRequireLogin={requireLogin}
-          onToggleLike={toggleLike} onAddComment={addComment} onFilterBreed={filterByBreed}
+          onToggleLike={toggleLike} onAddComment={addComment} onFilterBreed={filterByBreed} onDeletePost={deletePost}
         />
       ) : (
         <>
@@ -3476,19 +3500,30 @@ function App() {
       } catch {
         if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches) setTheme("dark");
       }
-      const [c, ing, br, en, dg, ord, cs, fo, so, loc, qr, fq, au, addr, ctopics, cposts, ccomments, clikes] = await loadManyOrSeed([
+      const [c, ing, br, en, dg, ord, cs, fo, so, loc, qr, fq, au, addr] = await loadManyOrSeed([
         [K.config, SEED_CONFIG], [K.ingredients, SEED_INGREDIENTS], [K.breeds, SEED_BREEDS], [K.engine, SEED_ENGINE],
         [K.dogs, []], [K.orders, []], [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
         [K.locations, SEED_LOCATIONS], [K.qrCode, ""], [K.faqs, SEED_FAQS], [K.audit, []], [K.addresses, []],
-        [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []],
       ]);
       setConfig(mergeConfig(c));
       setIngredients(ing); setBreeds(br); setEngine(en);
       setDogs(dg); setOrders(ord); setCancelledSlots(cs); setForceOpenSlots(fo); setSlotOverrides(so);
       setLocations(loc); setQrCode(qr); setFaqs(fq && fq.length ? fq : SEED_FAQS); setAudit(au); setAddresses(addr);
-      setCommunityTopics(ctopics && ctopics.length ? ctopics : SEED_COMMUNITY_TOPICS); setCommunityPosts(cposts); setCommunityComments(ccomments); setCommunityLikes(clikes);
       knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
       setLoading(false);
+
+      // Community data loads separately, in the background, after the app
+      // is already usable -- nothing else depends on it being ready
+      // immediately, so there's no reason to make every page wait on it.
+      (async () => {
+        try {
+          const [ctopics, cposts, ccomments, clikes] = await loadManyOrSeed([
+            [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []],
+          ]);
+          setCommunityTopics(ctopics && ctopics.length ? ctopics : SEED_COMMUNITY_TOPICS);
+          setCommunityPosts(cposts); setCommunityComments(ccomments); setCommunityLikes(clikes);
+        } catch {}
+      })();
 
       let alreadyVisited = false;
       try {
@@ -3694,11 +3729,11 @@ function App() {
   }
 
   if (trackOrderId) {
-    if (loading) return <Shell theme={theme}><div style={{ padding: 60, textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--muted)" }}>Loading your order&hellip;</div></Shell>;
+    if (loading) return <Shell theme={theme}><LoadingScreen /></Shell>;
     return <TrackOrderView orderId={trackOrderId} orders={orders} config={config} />;
   }
 
-  if (loading) return <Shell theme={theme}><div style={{ padding: 60, textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--muted)" }}>Setting the table&hellip;</div></Shell>;
+  if (loading) return <Shell theme={theme}><LoadingScreen /></Shell>;
 
   return (
     <Shell theme={theme}>
@@ -3898,6 +3933,15 @@ function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName,
   );
 }
 
+function LoadingScreen() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 80 }}>
+      <div className="loading-spinner" />
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--muted)", marginTop: 16, letterSpacing: "0.04em" }}>Loading</div>
+    </div>
+  );
+}
+
 function WelcomeOverlay({ message, sub, onDone }) {
   const [leaving, setLeaving] = useState(false);
 
@@ -4034,6 +4078,13 @@ function Shell({ children, theme }) {
           .welcome-overlay-leaving { transform: none; opacity: 0; }
           .welcome-overlay-content { animation: none; }
         }
+        .loading-spinner {
+          width: 34px; height: 34px; border-radius: 50%;
+          border: 3px solid var(--ring); border-top-color: var(--leaf);
+          animation: loadingSpin 0.7s linear infinite;
+        }
+        @keyframes loadingSpin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) { .loading-spinner { animation: none; border-top-color: var(--ring); } }
         @keyframes authModalEnter {
           from { opacity: 0; transform: translateY(10px) scale(0.98); }
           to { opacity: 1; transform: translateY(0) scale(1); }
