@@ -1501,14 +1501,20 @@ function avatarColorFor(name) {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
-function CommunityPostCard({ post, onOpen }) {
+function CommunityPostCard({ post, onOpen, myCustomerId, myPhoto }) {
   const images = (post.attachments || []).filter((a) => a.type !== "pdf");
   const initial = (post.authorName || "?").trim().charAt(0).toUpperCase();
+  // Your own content always shows your current photo, live -- not the
+  // snapshot from whenever you happened to post it. Everyone else's posts
+  // show the photo as of when they posted, since there's no efficient way
+  // to look up a live photo for every other author without a customers
+  // collection to query.
+  const displayPhoto = post.authorId === myCustomerId ? myPhoto : post.authorPhoto;
   return (
     <div className="insta-post" onClick={() => onOpen(post.id)}>
       <div className="insta-post-header">
-        {post.authorPhoto ? (
-          <img src={post.authorPhoto} alt="" className="insta-avatar" style={{ objectFit: "cover" }} />
+        {displayPhoto ? (
+          <img src={displayPhoto} alt="" className="insta-avatar" style={{ objectFit: "cover" }} />
         ) : (
           <div className="insta-avatar" style={{ background: avatarColorFor(post.authorName) }}>{initial}</div>
         )}
@@ -1547,7 +1553,7 @@ function CommunityPostCard({ post, onOpen }) {
   );
 }
 
-function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed, onDeletePost }) {
+function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, myPhoto, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed, onDeletePost }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [viewingImages, setViewingImages] = useState(null);
@@ -1610,8 +1616,8 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
         </div>
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, marginBottom: 8 }}>{post.title}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-          {post.authorPhoto ? (
-            <img src={post.authorPhoto} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
+          {(post.authorId === myCustomerId ? myPhoto : post.authorPhoto) ? (
+            <img src={post.authorId === myCustomerId ? myPhoto : post.authorPhoto} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
           ) : (
             <div style={{ width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11, background: avatarColorFor(post.authorName) }}>
               {(post.authorName || "?").trim().charAt(0).toUpperCase()}
@@ -1672,8 +1678,8 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
             <p style={{ fontSize: 13.5, color: "var(--muted)", margin: 0 }}>No comments yet -- be the first to share your thoughts.</p>
           ) : postComments.map((c) => (
             <div key={c.id} style={{ display: "flex", gap: 8 }}>
-              {c.userPhoto ? (
-                <img src={c.userPhoto} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
+              {(c.userId === myCustomerId ? myPhoto : c.userPhoto) ? (
+                <img src={c.userId === myCustomerId ? myPhoto : c.userPhoto} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
               ) : (
                 <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11.5, flexShrink: 0, marginTop: 1, background: avatarColorFor(c.userName) }}>
                   {(c.userName || "?").trim().charAt(0).toUpperCase()}
@@ -1705,7 +1711,7 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
             {post.breed !== BREED_ALL ? `More ${post.breed} Community posts` : "Related posts"}
           </div>
           <div className="responsive-grid">
-            {related.map((p) => <CommunityPostCard key={p.id} post={p} onOpen={() => onOpenPost(p.id)} />)}
+            {related.map((p) => <CommunityPostCard key={p.id} post={p} onOpen={() => onOpenPost(p.id)} myCustomerId={myCustomerId} myPhoto={myPhoto} />)}
           </div>
         </div>
       )}
@@ -1828,7 +1834,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, dogs, breeds, config, co
       ) : view === "post" && openPostObj ? (
         <CommunityPostDetail
           post={openPostObj} allPosts={communityPosts} comments={communityComments} likes={communityLikes}
-          myName={myName} myCustomerId={myCustomerId} config={config}
+          myName={myName} myCustomerId={myCustomerId} myPhoto={myPhoto} config={config}
           onBack={backToList} onOpenPost={openPost} onRequireLogin={requireLogin}
           onToggleLike={toggleLike} onAddComment={addComment} onFilterBreed={filterByBreed} onDeletePost={deletePost}
         />
@@ -1869,7 +1875,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, dogs, breeds, config, co
             <div className="insta-feed">
               {visible.map((p) => (
                 <div key={p.id} style={{ position: "relative" }}>
-                  <CommunityPostCard post={p} onOpen={openPost} />
+                  <CommunityPostCard post={p} onOpen={openPost} myCustomerId={myCustomerId} myPhoto={myPhoto} />
                   {showMine && p.status !== "approved" && (
                     <div style={{ position: "absolute", top: 10, right: 10 }}>
                       <Pill tone={p.status === "rejected" ? "bad" : "warn"}>{p.status === "rejected" ? "Not approved" : "Pending review"}</Pill>
