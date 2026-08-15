@@ -104,6 +104,7 @@ const COLLECTION_SHEETS = {
   "dfp:communityPosts": "CommunityPosts",
   "dfp:communityComments": "CommunityComments",
   "dfp:communityLikes": "CommunityLikes",
+  "dfp:profilePhotos": "ProfilePhotos",
 };
 
 async function sheetsGet_(key) {
@@ -333,6 +334,7 @@ const K = {
   communityPosts: "dfp:communityPosts",
   communityComments: "dfp:communityComments",
   communityLikes: "dfp:communityLikes",
+  profilePhotos: "dfp:profilePhotos",
 };
 const customerKey = (name) => `dfp:customer:${name.trim().toLowerCase()}`;
 async function getCustomerRecord(name) {
@@ -1141,7 +1143,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
    CUSTOMER: Saved delivery addresses (add once here, pick at order time)
    ========================================================================= */
 
-function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, communityPosts, setCommunityPosts, allAddresses, setAllAddresses, onMyPhoneChange, onMyPhotoChange, onGoToDogs }) {
+function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, communityPosts, setCommunityPosts, allAddresses, setAllAddresses, profilePhotos, setProfilePhotos, onMyPhoneChange, onMyPhotoChange, onGoToDogs }) {
   const [rec, setRec] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -1183,6 +1185,15 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
     setEditingEmail(false);
   };
 
+  const setPublicPhoto = async (dataUrl) => {
+    const others = profilePhotos.filter((p) => p.customerId !== myCustomerId);
+    const next = dataUrl
+      ? [...others, { customerId: myCustomerId, photoDataUrl: dataUrl, updatedAt: Date.now() }]
+      : others; // removing a photo just drops the public entry entirely
+    setProfilePhotos(next);
+    await persist(K.profilePhotos, next);
+  };
+
   const onPhotoFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1197,12 +1208,14 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
       setPhotoWarning("");
       await saveField({ photoDataUrl: dataUrl });
       onMyPhotoChange?.(dataUrl);
+      await setPublicPhoto(dataUrl);
     };
     reader.readAsDataURL(file);
   };
   const removePhoto = async () => {
     await saveField({ photoDataUrl: "" });
     onMyPhotoChange?.("");
+    await setPublicPhoto("");
   };
 
   // Renaming is safe now that every entity has a real customerId: the
@@ -1501,15 +1514,19 @@ function avatarColorFor(name) {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
-function CommunityPostCard({ post, onOpen, myCustomerId, myPhoto }) {
+// Every author's CURRENT photo, public and live for anyone viewing
+// Community -- not the frozen snapshot from whenever they happened to
+// post. Falls back to that snapshot only if no live entry exists yet
+// (e.g. an account that hasn't re-saved a photo since this was added).
+function resolveAuthorPhoto(profilePhotos, authorId, snapshotPhoto) {
+  const live = (profilePhotos || []).find((p) => p.customerId === authorId);
+  return (live ? live.photoDataUrl : snapshotPhoto) || "";
+}
+
+function CommunityPostCard({ post, onOpen, profilePhotos }) {
   const images = (post.attachments || []).filter((a) => a.type !== "pdf");
   const initial = (post.authorName || "?").trim().charAt(0).toUpperCase();
-  // Your own content always shows your current photo, live -- not the
-  // snapshot from whenever you happened to post it. Everyone else's posts
-  // show the photo as of when they posted, since there's no efficient way
-  // to look up a live photo for every other author without a customers
-  // collection to query.
-  const displayPhoto = post.authorId === myCustomerId ? myPhoto : post.authorPhoto;
+  const displayPhoto = resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto);
   return (
     <div className="insta-post" onClick={() => onOpen(post.id)}>
       <div className="insta-post-header">
@@ -1553,7 +1570,7 @@ function CommunityPostCard({ post, onOpen, myCustomerId, myPhoto }) {
   );
 }
 
-function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, myPhoto, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed, onDeletePost }) {
+function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, profilePhotos, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed, onDeletePost }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [viewingImages, setViewingImages] = useState(null);
@@ -1616,8 +1633,8 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
         </div>
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, marginBottom: 8 }}>{post.title}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-          {(post.authorId === myCustomerId ? myPhoto : post.authorPhoto) ? (
-            <img src={post.authorId === myCustomerId ? myPhoto : post.authorPhoto} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
+          {resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto) ? (
+            <img src={resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto)} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
           ) : (
             <div style={{ width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11, background: avatarColorFor(post.authorName) }}>
               {(post.authorName || "?").trim().charAt(0).toUpperCase()}
@@ -1678,8 +1695,8 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
             <p style={{ fontSize: 13.5, color: "var(--muted)", margin: 0 }}>No comments yet -- be the first to share your thoughts.</p>
           ) : postComments.map((c) => (
             <div key={c.id} style={{ display: "flex", gap: 8 }}>
-              {(c.userId === myCustomerId ? myPhoto : c.userPhoto) ? (
-                <img src={c.userId === myCustomerId ? myPhoto : c.userPhoto} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
+              {resolveAuthorPhoto(profilePhotos, c.userId, c.userPhoto) ? (
+                <img src={resolveAuthorPhoto(profilePhotos, c.userId, c.userPhoto)} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }} />
               ) : (
                 <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11.5, flexShrink: 0, marginTop: 1, background: avatarColorFor(c.userName) }}>
                   {(c.userName || "?").trim().charAt(0).toUpperCase()}
@@ -1711,7 +1728,7 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
             {post.breed !== BREED_ALL ? `More ${post.breed} Community posts` : "Related posts"}
           </div>
           <div className="responsive-grid">
-            {related.map((p) => <CommunityPostCard key={p.id} post={p} onOpen={() => onOpenPost(p.id)} myCustomerId={myCustomerId} myPhoto={myPhoto} />)}
+            {related.map((p) => <CommunityPostCard key={p.id} post={p} onOpen={() => onOpenPost(p.id)} profilePhotos={profilePhotos} />)}
           </div>
         </div>
       )}
@@ -1719,7 +1736,7 @@ function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustom
   );
 }
 
-function CommunityView({ myName, myCustomerId, myPhoto, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
+function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
   const [view, setView] = useState("list"); // list | post | create
   const [openPostId, setOpenPostId] = useState(null);
   const [topicFilter, setTopicFilter] = useState("");
@@ -1834,7 +1851,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, dogs, breeds, config, co
       ) : view === "post" && openPostObj ? (
         <CommunityPostDetail
           post={openPostObj} allPosts={communityPosts} comments={communityComments} likes={communityLikes}
-          myName={myName} myCustomerId={myCustomerId} myPhoto={myPhoto} config={config}
+          myName={myName} myCustomerId={myCustomerId} profilePhotos={profilePhotos} config={config}
           onBack={backToList} onOpenPost={openPost} onRequireLogin={requireLogin}
           onToggleLike={toggleLike} onAddComment={addComment} onFilterBreed={filterByBreed} onDeletePost={deletePost}
         />
@@ -1875,7 +1892,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, dogs, breeds, config, co
             <div className="insta-feed">
               {visible.map((p) => (
                 <div key={p.id} style={{ position: "relative" }}>
-                  <CommunityPostCard post={p} onOpen={openPost} myCustomerId={myCustomerId} myPhoto={myPhoto} />
+                  <CommunityPostCard post={p} onOpen={openPost} profilePhotos={profilePhotos} />
                   {showMine && p.status !== "approved" && (
                     <div style={{ position: "absolute", top: 10, right: 10 }}>
                       <Pill tone={p.status === "rejected" ? "bad" : "warn"}>{p.status === "rejected" ? "Not approved" : "Pending review"}</Pill>
@@ -4299,7 +4316,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
 }
 
 
-function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, allAddresses, setAllAddresses, audit, logAudit }) {
+function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos, allAddresses, setAllAddresses, audit, logAudit }) {
   const [customers, setCustomers] = useState(null);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -4319,6 +4336,7 @@ function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommun
     setCommunityPosts([]); await persist(K.communityPosts, []);
     setCommunityComments([]); await persist(K.communityComments, []);
     setCommunityLikes([]); await persist(K.communityLikes, []);
+    setProfilePhotos([]); await persist(K.profilePhotos, []);
     setAllAddresses([]); await persist(K.addresses, []);
 
     // Delete every customer account too -- this is what "customer details"
@@ -4329,7 +4347,7 @@ function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommun
       await Promise.all((list?.keys || []).map((k) => window.storage.delete(k, true)));
     } catch {}
 
-    logAudit("Admin cleared ALL order and customer data (orders, order items, dogs, addresses, Community posts/comments/likes, and every customer account).");
+    logAudit("Admin cleared ALL order and customer data (orders, order items, dogs, addresses, Community posts/comments/likes, profile photos, and every customer account).");
     setCustomers([]);
     setClearing(false);
     setClearDone(true);
@@ -4548,7 +4566,7 @@ function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommun
         ) : (
           <>
             <p style={{ fontSize: 13.5, marginBottom: 12 }}>
-              Permanently deletes every order, order line item, dog, saved address, Community post/comment/like, and customer account.
+              Permanently deletes every order, order line item, dog, saved address, Community post/comment/like, profile photo, and customer account.
               Ingredients, delivery areas, settings, and the audit log are not affected. <b>This cannot be undone</b> --
               use "Export full backup" above first if there's any chance you'll want this data back.
             </p>
@@ -4734,6 +4752,7 @@ function App() {
   const [communityPosts, setCommunityPosts] = useState([]);
   const [communityComments, setCommunityComments] = useState([]);
   const [communityLikes, setCommunityLikes] = useState([]);
+  const [profilePhotos, setProfilePhotos] = useState([]);
   const [communityLoaded, setCommunityLoaded] = useState(false);
   const [addresses, setAddresses] = useState([]);
   const [qrCode, setQrCode] = useState("");
@@ -4787,6 +4806,7 @@ function App() {
   const setOrdersT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setOrders(v); }, []);
   const setDogsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setDogs(v); }, []);
   const setAddressesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setAddresses(v); }, []);
+  const setProfilePhotosT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setProfilePhotos(v); }, []);
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
@@ -4851,8 +4871,8 @@ function App() {
       // immediately, so there's no reason to make every page wait on it.
       (async () => {
         try {
-          const [ctopics, cposts, ccomments, clikes] = await loadManyOrSeed([
-            [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []],
+          const [ctopics, cposts, ccomments, clikes, cphotos] = await loadManyOrSeed([
+            [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []], [K.profilePhotos, []],
           ]);
           if (ctopics && ctopics.length) {
             setCommunityTopics(ctopics);
@@ -4865,7 +4885,7 @@ function App() {
             setCommunityTopics(SEED_COMMUNITY_TOPICS);
             persist(K.communityTopics, SEED_COMMUNITY_TOPICS).catch(() => {});
           }
-          setCommunityPosts(cposts); setCommunityComments(ccomments); setCommunityLikes(clikes);
+          setCommunityPosts(cposts); setCommunityComments(ccomments); setCommunityLikes(clikes); setProfilePhotos(cphotos);
           setCommunityLoaded(true);
         } catch {}
       })();
@@ -4896,11 +4916,11 @@ function App() {
   // is now fixed at the source -- so it's safe to sync more here.
   const refresh = useCallback(async () => {
     try {
-      const [ord, dg, cfgRaw, cs, fo, so, loc, addr, ctopics, cposts, ccomments, clikes] = await loadManyOrSeed([
+      const [ord, dg, cfgRaw, cs, fo, so, loc, addr, ctopics, cposts, ccomments, clikes, cphotos] = await loadManyOrSeed([
         [K.orders, []], [K.dogs, []], [K.config, SEED_CONFIG],
         [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
         [K.locations, SEED_LOCATIONS], [K.addresses, []],
-        [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []],
+        [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []], [K.profilePhotos, []],
       ]);
 
       if (knownOrderIdsRef.current) {
@@ -4936,6 +4956,7 @@ function App() {
         setCommunityPosts((prev) => (JSON.stringify(prev) === JSON.stringify(cposts) ? prev : cposts));
         setCommunityComments((prev) => (JSON.stringify(prev) === JSON.stringify(ccomments) ? prev : ccomments));
         setCommunityLikes((prev) => (JSON.stringify(prev) === JSON.stringify(clikes) ? prev : clikes));
+        setProfilePhotos((prev) => (JSON.stringify(prev) === JSON.stringify(cphotos) ? prev : cphotos));
       }
     } catch {}
   }, []);
@@ -5165,12 +5186,13 @@ function App() {
             <ProfileView
               myName={myName} setMyName={setMyName} myCustomerId={myCustomerId}
               dogs={dogs} setDogs={setDogs} orders={orders} setOrders={setOrders} communityPosts={communityPosts} setCommunityPosts={setCommunityPosts}
-              allAddresses={addresses} setAllAddresses={setAddresses} onMyPhoneChange={setMyPhone} onMyPhotoChange={setMyPhoto} onGoToDogs={() => setTab("dogs")}
+              allAddresses={addresses} setAllAddresses={setAddresses} profilePhotos={profilePhotos} setProfilePhotos={setProfilePhotos}
+              onMyPhoneChange={setMyPhone} onMyPhotoChange={setMyPhoto} onGoToDogs={() => setTab("dogs")}
             />
           )}
           {role === "customer" && tab === "community" && (
             <CommunityView
-              myName={myName} myCustomerId={myCustomerId} myPhoto={myPhoto} dogs={dogs} breeds={breeds} config={config}
+              myName={myName} myCustomerId={myCustomerId} myPhoto={myPhoto} profilePhotos={profilePhotos} dogs={dogs} breeds={breeds} config={config}
               communityTopics={communityTopics} communityPosts={communityPosts} setCommunityPosts={setCommunityPosts}
               communityComments={communityComments} setCommunityComments={setCommunityComments}
               communityLikes={communityLikes} setCommunityLikes={setCommunityLikes} communityLoaded={communityLoaded}
@@ -5196,7 +5218,7 @@ function App() {
           {role === "admin" && tab === "faq" && <AdminFAQ faqs={faqs} setFaqs={setFaqs} logAudit={logAudit} />}
           {role === "admin" && tab === "community" && <AdminCommunity communityPosts={communityPosts} setCommunityPosts={setCommunityPostsT} communityLoaded={communityLoaded} logAudit={logAudit} />}
           {role === "admin" && tab === "communityTopics" && <AdminCommunityTopics communityTopics={communityTopics} setCommunityTopics={setCommunityTopicsT} communityLoaded={communityLoaded} logAudit={logAudit} />}
-          {role === "admin" && tab === "data" && <AdminData orders={orders} setOrders={setOrdersT} dogs={dogs} setDogs={setDogsT} communityPosts={communityPosts} setCommunityPosts={setCommunityPostsT} communityComments={communityComments} setCommunityComments={setCommunityComments} communityLikes={communityLikes} setCommunityLikes={setCommunityLikes} allAddresses={addresses} setAllAddresses={setAddressesT} audit={audit} logAudit={logAudit} />}
+          {role === "admin" && tab === "data" && <AdminData orders={orders} setOrders={setOrdersT} dogs={dogs} setDogs={setDogsT} communityPosts={communityPosts} setCommunityPosts={setCommunityPostsT} communityComments={communityComments} setCommunityComments={setCommunityComments} communityLikes={communityLikes} setCommunityLikes={setCommunityLikes} profilePhotos={profilePhotos} setProfilePhotos={setProfilePhotosT} allAddresses={addresses} setAllAddresses={setAddressesT} audit={audit} logAudit={logAudit} />}
           {role === "admin" && tab === "settings" && <AdminSettings config={config} setConfig={setConfigT} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlotsT} forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlotsT} slotOverrides={slotOverrides} setSlotOverrides={setSlotOverridesT} logAudit={logAudit} />}
           {role === "admin" && tab === "audit" && <AdminAudit audit={audit} />}
         </main>
