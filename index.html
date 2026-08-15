@@ -95,12 +95,15 @@ const COLLECTION_SHEETS = {
   "dfp:locations": "Locations",
   "dfp:faqs": "FAQs",
   "dfp:audit": "AuditLog",
-  "dfp:gallery": "Gallery",
   "dfp:slotOverrides": "SlotOverrides",
   "dfp:cancelledSlots": "CancelledSlots",
   "dfp:forceOpenSlots": "ForceOpenSlots",
   "dfp:addresses": "Addresses",
   "dfp:orderItems": "OrderItems",
+  "dfp:communityTopics": "CommunityTopics",
+  "dfp:communityPosts": "CommunityPosts",
+  "dfp:communityComments": "CommunityComments",
+  "dfp:communityLikes": "CommunityLikes",
 };
 
 async function sheetsGet_(key) {
@@ -288,6 +291,8 @@ const ImageIcon = (p) => <Glyph e="🖼" {...p} />;
 const CalendarDays = (p) => <Glyph e="📅" {...p} />;
 const Banknote = (p) => <Glyph e="💵" {...p} />;
 const Link2 = (p) => <Glyph e="🔗" {...p} />;
+const Users = (p) => <Glyph e="👥" {...p} />;
+const Tag = (p) => <Glyph e="🏷" {...p} />;
 
 
 /* ============================================================================
@@ -319,9 +324,12 @@ const K = {
   qrCode: "dfp:qrCode",
   faqs: "dfp:faqs",
   slotOverrides: "dfp:slotOverrides",
-  gallery: "dfp:gallery",
   addresses: "dfp:addresses",
   orderItems: "dfp:orderItems",
+  communityTopics: "dfp:communityTopics",
+  communityPosts: "dfp:communityPosts",
+  communityComments: "dfp:communityComments",
+  communityLikes: "dfp:communityLikes",
 };
 const customerKey = (name) => `dfp:customer:${name.trim().toLowerCase()}`;
 async function getCustomerRecord(name) {
@@ -475,6 +483,21 @@ const SEED_BREEDS = [
   { name: "Mixed / Other", sizeFactor: 1.00, available: true },
 ];
 
+const SEED_COMMUNITY_TOPICS = [
+  { id: "topic_training", name: "Dog Training", active: true },
+  { id: "topic_nutrition", name: "Nutrition & Food", active: true },
+  { id: "topic_grooming", name: "Grooming", active: true },
+  { id: "topic_health", name: "Health & Care", active: true },
+  { id: "topic_behaviour", name: "Behaviour", active: true },
+  { id: "topic_puppy", name: "Puppy Training", active: true },
+  { id: "topic_exercise", name: "Exercise", active: true },
+  { id: "topic_adoption", name: "Adoption", active: true },
+  { id: "topic_products", name: "Dog Products", active: true },
+  { id: "topic_general", name: "General Experience", active: true },
+  { id: "topic_breedinfo", name: "Breed Information", active: true },
+  { id: "topic_other", name: "Other", active: true },
+];
+
 const SEED_ENGINE = {
   ageFactors: { puppy: 1.25, adult: 1.0, senior: 0.85 },
   activityFactors: { low: 0.85, medium: 1.0, high: 1.2 },
@@ -496,8 +519,6 @@ const SEED_CONFIG = {
   gstEnabled: false,
   gstPercent: 18,
   gstNumber: "",
-  galleryUploadEnabled: true,
-  galleryFullMessage: "Our gallery is full. Mail us your pet photos to get featured on the gallery.",
   sessions: {
     morning: { label: "Morning", servingTime: "08:00", closeTime: "07:00", capacity: 4 },
     evening: { label: "Evening", servingTime: "19:00", closeTime: "18:00", capacity: 4 },
@@ -935,7 +956,7 @@ function AuthModal({ mode, name, setName, pw, setPw, pw2, setPw2, email, setEmai
    CUSTOMER: Dogs
    ========================================================================= */
 
-function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, setAllAddresses, onContinue }) {
+function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, setAllAddresses, onContinue, onReadAboutBreed }) {
   const myDogs = dogs.filter((d) => d.owner === myName);
   const [form, setForm] = useState(null);
   const [justAdded, setJustAdded] = useState(null);
@@ -1005,6 +1026,11 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
             <div style={{ marginTop: 10, fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7 }}>
               <div>{dog.breed}</div>
               <div>{formatAge(effectiveAgeMonths(dog))} &middot; {dog.weightKg} kg &middot; {ACTIVITY_LABEL[dog.activity]} activity</div>
+              {onReadAboutBreed && (
+                <button onClick={() => onReadAboutBreed(dog.breed)} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, marginTop: 8, textDecoration: "underline" }}>
+                  Read about {dog.breed} in our Community &rarr;
+                </button>
+              )}
             </div>
           </Card>
         ))}
@@ -1069,7 +1095,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
    CUSTOMER: Saved delivery addresses (add once here, pick at order time)
    ========================================================================= */
 
-function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, gallery, setGallery, allAddresses, setAllAddresses, onMyPhoneChange, onGoToDogs }) {
+function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, setOrders, communityPosts, setCommunityPosts, allAddresses, setAllAddresses, onMyPhoneChange, onGoToDogs }) {
   const [rec, setRec] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -1111,7 +1137,7 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
 
   // Renaming is safe now that every entity has a real customerId: the
   // account record just moves to a new key, and every existing dog/order/
-  // gallery photo this customer owns gets its cached display name
+  // Community post this customer owns gets its cached display name
   // refreshed to match -- found by customerId, not by the old name.
   const saveName = async () => {
     const newName = draftName.trim();
@@ -1137,9 +1163,9 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
     setOrders(nextOrders);
     await persist(K.orders, nextOrders);
 
-    const nextGallery = gallery.map((p) => (p.customerId === myCustomerId ? { ...p, customerName: newName } : p));
-    setGallery(nextGallery);
-    await persist(K.gallery, nextGallery);
+    const nextPosts = communityPosts.map((p) => (p.authorId === myCustomerId ? { ...p, authorName: newName } : p));
+    setCommunityPosts(nextPosts);
+    await persist(K.communityPosts, nextPosts);
 
     setRec(nextRec);
     setMyName(newName);
@@ -1216,6 +1242,447 @@ function ProfileView({ myName, setMyName, myCustomerId, dogs, setDogs, orders, s
       </Card>
 
       <AddressManager myName={myName} myCustomerId={myCustomerId} allAddresses={allAddresses} setAllAddresses={setAllAddresses} />
+    </div>
+  );
+}
+
+/* ============================================================================
+   CUSTOMER: Community (public read, authenticated write)
+   Posts/comments/likes are public-readable app-level collections, loaded
+   once at startup exactly like orders/dogs already are -- nothing special
+   is needed to make browsing work without an account. Only creating a
+   post, liking, and commenting require being signed in.
+   ========================================================================= */
+
+const COMMUNITY_IMAGE_CAP = 1_000_000; // ~1MB per image, base64 text length
+const COMMUNITY_MAX_IMAGES = 5;
+const BREED_ALL = "All Breeds / General";
+
+function LoginPromptModal({ action, onOpenAuth, onClose }) {
+  return (
+    <Modal onCancel={onClose} maxWidth={380}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" }}><CircleUser size={16} color="#fff" /></div>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 }}>Sign in to continue</div>
+      </div>
+      <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 18 }}>You'll need an account to {action}. It only takes a moment.</p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn full onClick={() => onOpenAuth("login")}>Log in</Btn>
+        <Btn full variant="ghost" onClick={() => onOpenAuth("signup")}>Sign up</Btn>
+      </div>
+      <Btn full variant="ghost" style={{ marginTop: 8 }} onClick={onClose}>Cancel</Btn>
+    </Modal>
+  );
+}
+
+function CommunityImageLightbox({ images, startIndex, onClose }) {
+  const [idx, setIdx] = useState(startIndex || 0);
+  if (!images || images.length === 0) return null;
+  return (
+    <Modal onCancel={onClose} maxWidth={640}>
+      <img src={images[idx]} alt="" style={{ width: "100%", maxHeight: "65vh", objectFit: "contain", borderRadius: 12, background: "var(--surface-muted)", display: "block" }} />
+      {images.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+          <Btn small variant="ghost" onClick={() => setIdx((i) => (i - 1 + images.length) % images.length)}>&larr; Prev</Btn>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }}>{idx + 1} / {images.length}</span>
+          <Btn small variant="ghost" onClick={() => setIdx((i) => (i + 1) % images.length)}>Next &rarr;</Btn>
+        </div>
+      )}
+      <Btn full variant="ghost" style={{ marginTop: 14 }} onClick={onClose}>Close</Btn>
+    </Modal>
+  );
+}
+
+function CommunityImagePicker({ images, setImages, setWarning }) {
+  const fileRef = useRef(null);
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (images.length >= COMMUNITY_MAX_IMAGES) {
+      setWarning(`You can add up to ${COMMUNITY_MAX_IMAGES} images per post.`);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (dataUrl.length > COMMUNITY_IMAGE_CAP) {
+        setWarning("That image is too large -- try a smaller or more compressed photo (roughly under 700KB works well).");
+        if (fileRef.current) fileRef.current.value = "";
+        return;
+      }
+      setWarning("");
+      setImages([...images, dataUrl]);
+      if (fileRef.current) fileRef.current.value = "";
+    };
+    reader.readAsDataURL(file);
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        {images.map((img, i) => (
+          <div key={i} style={{ position: "relative", width: 72, height: 72 }}>
+            <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, display: "block" }} />
+            <button onClick={() => setImages(images.filter((_, idx) => idx !== i))} style={{ position: "absolute", top: -6, right: -6, background: "var(--clay)", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 12, lineHeight: 1 }}>&times;</button>
+          </div>
+        ))}
+      </div>
+      {images.length < COMMUNITY_MAX_IMAGES && (
+        <Btn small variant="ghost" onClick={() => fileRef.current?.click()}><ImageIcon size={13} /> Add image ({images.length}/{COMMUNITY_MAX_IMAGES})</Btn>
+      )}
+      <input ref={fileRef} type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
+    </div>
+  );
+}
+
+function CreatePostForm({ myName, dogs, topics, onSubmit, onCancel }) {
+  const myDogs = dogs.filter((d) => d.owner === myName);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [topic, setTopic] = useState(topics[0]?.name || "");
+  const [breed, setBreed] = useState(BREED_ALL);
+  const [dogDetails, setDogDetails] = useState("");
+  const [images, setImages] = useState([]);
+  const [warning, setWarning] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!title.trim()) { setWarning("Add a title for your post."); return; }
+    if (!content.trim() && images.length === 0) { setWarning("Add some writing, at least one image, or both."); return; }
+    setWarning("");
+    setSubmitting(true);
+    await onSubmit({ title: title.trim(), content: content.trim(), topic, breed, dogDetails: dogDetails.trim(), images });
+    setSubmitting(false);
+  };
+
+  return (
+    <Card style={{ maxWidth: 560 }}>
+      <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Share with the Community</div>
+      <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>Your post is reviewed by us before it goes public -- usually quick.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Field label="Title"><input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What Sandy taught me about crate training" /></Field>
+        <Field label="Your writing (optional if you're just sharing photos)">
+          <textarea style={{ ...inputStyle, minHeight: 120, resize: "vertical" }} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Share your experience, a tip, or something you learned..." />
+        </Field>
+        <div className="form-grid-2">
+          <Field label="Topic">
+            <select style={inputStyle} value={topic} onChange={(e) => setTopic(e.target.value)}>
+              {topics.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Dog breed">
+            <select style={inputStyle} value={breed} onChange={(e) => setBreed(e.target.value)}>
+              <option value={BREED_ALL}>{BREED_ALL}</option>
+              {myDogs.map((d) => <option key={d.id} value={d.breed}>{d.breed} ({d.name})</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="Relevant dog details (optional)"><input style={inputStyle} value={dogDetails} onChange={(e) => setDogDetails(e.target.value)} placeholder="e.g. 8 months old, high energy" /></Field>
+        <Field label="Images (optional, up to 5)"><CommunityImagePicker images={images} setImages={setImages} setWarning={setWarning} /></Field>
+      </div>
+      {warning && <p style={{ fontSize: 13, color: "var(--clay)", marginTop: 10 }}>{warning}</p>}
+      <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+        <Btn onClick={submit} disabled={submitting} loadingText="Submitting…">Submit for review</Btn>
+        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+      </div>
+    </Card>
+  );
+}
+
+function CommunityPostCard({ post, onOpen }) {
+  return (
+    <Card style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => onOpen(post.id)}>
+      {post.images && post.images.length > 0 && (
+        <img src={post.images[0]} alt="" style={{ width: "100%", display: "block" }} />
+      )}
+      <div style={{ padding: 16 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          <Pill>{post.topic}</Pill>
+          {post.breed && post.breed !== BREED_ALL && <Pill tone="good">{post.breed}</Pill>}
+        </div>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17, marginBottom: 6 }}>{post.title}</div>
+        {post.content && <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 10, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{post.content}</div>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>
+          <span>{post.authorName} &middot; {fmtDateLabel(toDateStr(new Date(post.createdAt)))}</span>
+          <span style={{ display: "flex", gap: 10 }}>
+            <span>&hearts; {post.likeCount || 0}</span>
+            <span>&#128172; {post.commentCount || 0}</span>
+          </span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CommunityPostDetail({ post, allPosts, comments, likes, myName, myCustomerId, config, onBack, onOpenPost, onRequireLogin, onToggleLike, onAddComment, onFilterBreed }) {
+  const [commentText, setCommentText] = useState("");
+  const [viewingImages, setViewingImages] = useState(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const postComments = comments.filter((c) => c.postId === post.id).sort((a, b) => a.createdAt - b.createdAt);
+  const iLiked = myCustomerId && likes.some((l) => l.postId === post.id && l.userId === myCustomerId);
+
+  const related = allPosts
+    .filter((p) => p.id !== post.id && p.status === "approved")
+    .map((p) => ({ post: p, score: (p.breed === post.breed && post.breed !== BREED_ALL ? 2 : 0) + (p.topic === post.topic ? 1 : 0) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((x) => x.post);
+
+  const postUrl = () => `${window.location.origin}${window.location.pathname}?post=${post.id}`;
+
+  const share = async () => {
+    const url = postUrl();
+    const shareData = { title: post.title, text: post.content ? post.content.slice(0, 140) : post.title, url };
+    if (navigator.share) {
+      try { await navigator.share(shareData); return; } catch { /* cancelled or unsupported mid-flow -- fall through to copy */ }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2500);
+    } catch {}
+  };
+
+  const submitComment = async () => {
+    if (!myName) { onRequireLogin("comment"); return; }
+    if (!commentText.trim()) return;
+    await onAddComment(post.id, commentText.trim());
+    setCommentText("");
+  };
+
+  const clickLike = () => {
+    if (!myName) { onRequireLogin("like this post"); return; }
+    onToggleLike(post.id);
+  };
+
+  return (
+    <div>
+      {viewingImages && <CommunityImageLightbox images={post.images} startIndex={viewingImages} onClose={() => setViewingImages(null)} />}
+      <Btn small variant="ghost" onClick={onBack} style={{ marginBottom: 14 }}>&larr; Back to Community</Btn>
+
+      <Card style={{ maxWidth: 640 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <Pill>{post.topic}</Pill>
+          {post.breed && post.breed !== BREED_ALL && (
+            <button onClick={() => onFilterBreed(post.breed)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+              <Pill tone="good">{post.breed}</Pill>
+            </button>
+          )}
+        </div>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, marginBottom: 8 }}>{post.title}</div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 18 }}>
+          By {post.authorName} &middot; {fmtDateLabel(toDateStr(new Date(post.createdAt)))}
+          {post.updatedAt && post.updatedAt !== post.createdAt && <> &middot; edited</>}
+        </div>
+
+        {post.dogDetails && (
+          <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14, fontStyle: "italic" }}>{post.dogDetails}</div>
+        )}
+
+        {post.images && post.images.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: post.images.length === 1 ? "1fr" : "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 16 }}>
+            {post.images.map((img, i) => (
+              <img key={i} src={img} alt="" onClick={() => setViewingImages(i)} style={{ width: "100%", borderRadius: 12, cursor: "pointer", display: "block", maxHeight: post.images.length === 1 ? 420 : 180, objectFit: "cover" }} />
+            ))}
+          </div>
+        )}
+
+        {post.content && <p style={{ fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 20 }}>{post.content}</p>}
+
+        <div style={{ display: "flex", gap: 10, paddingTop: 16, borderTop: "1px solid var(--ring)" }}>
+          <Btn small variant={iLiked ? "accent" : "ghost"} onClick={clickLike}>&hearts; {post.likeCount || 0}</Btn>
+          <Btn small variant="ghost" onClick={share}>{shareCopied ? "Link copied!" : <><Link2 size={13} /> Share</>}</Btn>
+        </div>
+      </Card>
+
+      <Card style={{ maxWidth: 640, marginTop: 16 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 14 }}>Comments ({postComments.length})</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 16 }}>
+          {postComments.length === 0 ? (
+            <p style={{ fontSize: 13.5, color: "var(--muted)", margin: 0 }}>No comments yet -- be the first to share your thoughts.</p>
+          ) : postComments.map((c) => (
+            <div key={c.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}>
+                <b>{c.userName}</b>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{fmtDateTime(c.createdAt)}</span>
+              </div>
+              <div style={{ fontSize: 14 }}>{c.text}</div>
+            </div>
+          ))}
+        </div>
+        {myName ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={{ ...inputStyle, flex: 1 }} value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitComment()} placeholder="Add a comment..." />
+            <Btn small onClick={submitComment}>Post</Btn>
+          </div>
+        ) : (
+          <Btn small variant="ghost" onClick={() => onRequireLogin("comment")}>Sign in to comment</Btn>
+        )}
+      </Card>
+
+      {related.length > 0 && (
+        <div style={{ marginTop: 24, maxWidth: 640 }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>
+            {post.breed !== BREED_ALL ? `More ${post.breed} Community posts` : "Related posts"}
+          </div>
+          <div className="responsive-grid">
+            {related.map((p) => <CommunityPostCard key={p.id} post={p} onOpen={() => onOpenPost(p.id)} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommunityView({ myName, myCustomerId, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
+  const [view, setView] = useState("list"); // list | post | create
+  const [openPostId, setOpenPostId] = useState(null);
+  const [topicFilter, setTopicFilter] = useState("");
+  const [breedFilter, setBreedFilter] = useState("");
+  const [showMine, setShowMine] = useState(false);
+  const [loginPrompt, setLoginPrompt] = useState(null); // string action label, or null
+
+  useEffect(() => {
+    if (initialPostId) {
+      setOpenPostId(initialPostId);
+      setView("post");
+      onConsumeInitialPost?.();
+    }
+  }, [initialPostId]);
+
+  useEffect(() => {
+    if (initialBreedFilter) {
+      setBreedFilter(initialBreedFilter);
+      setView("list");
+      onConsumeInitialBreedFilter?.();
+    }
+  }, [initialBreedFilter]);
+
+  const activeTopics = communityTopics.filter((t) => t.active !== false);
+  const approved = communityPosts.filter((p) => p.status === "approved");
+  const mine = communityPosts.filter((p) => p.authorId === myCustomerId);
+
+  const visible = (showMine ? mine : approved)
+    .filter((p) => !topicFilter || p.topic === topicFilter)
+    .filter((p) => !breedFilter || p.breed === breedFilter)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  const openPost = (id) => { setOpenPostId(id); setView("post"); };
+  const backToList = () => { setView("list"); setOpenPostId(null); };
+  const requireLogin = (action) => setLoginPrompt(action);
+
+  const startCreate = () => {
+    if (!myName) { requireLogin("share a Community post"); return; }
+    setView("create");
+  };
+
+  const submitPost = async (draft) => {
+    const entry = {
+      id: uid("post_"), authorId: myCustomerId, authorName: myName,
+      title: draft.title, content: draft.content, topic: draft.topic, breed: draft.breed, dogDetails: draft.dogDetails,
+      images: draft.images, createdAt: Date.now(), updatedAt: null, status: "pending", likeCount: 0, commentCount: 0,
+    };
+    const next = [...communityPosts, entry];
+    setCommunityPosts(next);
+    await persist(K.communityPosts, next);
+    setView("list");
+    setShowMine(true);
+  };
+
+  const toggleLike = async (postId) => {
+    const existing = communityLikes.find((l) => l.postId === postId && l.userId === myCustomerId);
+    const nextLikes = existing ? communityLikes.filter((l) => l.id !== existing.id) : [...communityLikes, { id: uid("like_"), postId, userId: myCustomerId, createdAt: Date.now() }];
+    setCommunityLikes(nextLikes);
+    await persist(K.communityLikes, nextLikes);
+    const nextPosts = communityPosts.map((p) => (p.id === postId ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (existing ? -1 : 1)) } : p));
+    setCommunityPosts(nextPosts);
+    await persist(K.communityPosts, nextPosts);
+  };
+
+  const addComment = async (postId, text) => {
+    const entry = { id: uid("comment_"), postId, userId: myCustomerId, userName: myName, text, createdAt: Date.now(), updatedAt: null, status: "visible" };
+    const nextComments = [...communityComments, entry];
+    setCommunityComments(nextComments);
+    await persist(K.communityComments, nextComments);
+    const nextPosts = communityPosts.map((p) => (p.id === postId ? { ...p, commentCount: (p.commentCount || 0) + 1 } : p));
+    setCommunityPosts(nextPosts);
+    await persist(K.communityPosts, nextPosts);
+  };
+
+  const filterByBreed = (breed) => { setBreedFilter(breed); setShowMine(false); backToList(); };
+
+  const openPostObj = openPostId ? communityPosts.find((p) => p.id === openPostId) : null;
+
+  return (
+    <div>
+      {loginPrompt && (
+        <LoginPromptModal
+          action={loginPrompt}
+          onOpenAuth={(mode) => { setLoginPrompt(null); onOpenAuth(mode); }}
+          onClose={() => setLoginPrompt(null)}
+        />
+      )}
+
+      {view === "create" ? (
+        <CreatePostForm myName={myName} dogs={dogs} topics={activeTopics} onSubmit={submitPost} onCancel={backToList} />
+      ) : view === "post" && openPostObj ? (
+        <CommunityPostDetail
+          post={openPostObj} allPosts={communityPosts} comments={communityComments} likes={communityLikes}
+          myName={myName} myCustomerId={myCustomerId} config={config}
+          onBack={backToList} onOpenPost={openPost} onRequireLogin={requireLogin}
+          onToggleLike={toggleLike} onAddComment={addComment} onFilterBreed={filterByBreed}
+        />
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+            <SectionTitle eyebrow="Community" title="Community" sub="Discover real experiences, helpful tips, training advice, and breed-specific knowledge shared by dog owners." />
+            <Btn onClick={startCreate}><Plus size={15} /> Share a post</Btn>
+          </div>
+
+          <Card style={{ marginBottom: 18 }}>
+            <div className="form-grid-2">
+              <Field label="Topic">
+                <select style={inputStyle} value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)}>
+                  <option value="">All topics</option>
+                  {activeTopics.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Dog breed">
+                <select style={inputStyle} value={breedFilter} onChange={(e) => setBreedFilter(e.target.value)}>
+                  <option value="">All breeds</option>
+                  <option value={BREED_ALL}>{BREED_ALL}</option>
+                  {breeds.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
+                </select>
+              </Field>
+            </div>
+            {myName && (
+              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                <button onClick={() => setShowMine(false)} className={"date-chip" + (!showMine ? " active" : "")}>Community</button>
+                <button onClick={() => setShowMine(true)} className={"date-chip" + (showMine ? " active" : "")}>My posts</button>
+              </div>
+            )}
+          </Card>
+
+          {visible.length === 0 ? (
+            <Card><p style={{ margin: 0, color: "var(--muted)" }}>{showMine ? "You haven't posted anything yet." : "No posts match these filters yet -- be the first to share one!"}</p></Card>
+          ) : (
+            <div className="responsive-grid">
+              {visible.map((p) => (
+                <div key={p.id} style={{ position: "relative" }}>
+                  <CommunityPostCard post={p} onOpen={openPost} />
+                  {showMine && p.status !== "approved" && (
+                    <div style={{ position: "absolute", top: 10, right: 10 }}>
+                      <Pill tone={p.status === "rejected" ? "bad" : "warn"}>{p.status === "rejected" ? "Not approved" : "Pending review"}</Pill>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -2349,1577 +2816,41 @@ function ContactView({ config }) {
 }
 
 /* ============================================================================
-   CUSTOMER: Gallery (upload a pet photo, reviewed by admin before public)
+   ADMIN: Community (post moderation + topic management)
    ========================================================================= */
 
-function PhotoLightbox({ photo, onClose }) {
-  if (!photo) return null;
-  return (
-    <Modal onCancel={onClose} maxWidth={560}>
-      <img src={photo.imageDataUrl} alt="" style={{ width: "100%", maxHeight: "70vh", objectFit: "contain", borderRadius: 12, marginBottom: 14, display: "block", background: "var(--surface-muted)" }} />
-      {photo.description && <p style={{ fontSize: 14.5, margin: "0 0 10px" }}>{photo.description}</p>}
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }}>{photo.dogName ? `${photo.dogName} · ` : ""}{photo.customerName}</div>
-      <Btn full variant="ghost" style={{ marginTop: 16 }} onClick={onClose}>Close</Btn>
-    </Modal>
-  );
-}
+function AdminCommunity({ communityPosts, setCommunityPosts, logAudit }) {
+  const [viewingImages, setViewingImages] = useState(null);
+  const save = async (next) => { setCommunityPosts(next); await persist(K.communityPosts, next); };
+  const pending = communityPosts.filter((p) => p.status === "pending").sort((a, b) => a.createdAt - b.createdAt);
+  const reviewed = communityPosts.filter((p) => p.status !== "pending").sort((a, b) => b.createdAt - a.createdAt);
 
-function GalleryView({ myName, myCustomerId, dogs, gallery, setGallery, config }) {
-  const fileRef = useRef(null);
-  const [draftPhoto, setDraftPhoto] = useState(null); // { dataUrl } -- previewed, not yet uploaded
-  const [description, setDescription] = useState("");
-  const [dogName, setDogName] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [warning, setWarning] = useState("");
-  const [justSubmitted, setJustSubmitted] = useState(false);
-  const [viewingPhoto, setViewingPhoto] = useState(null);
+  const approve = (p) => { save(communityPosts.map((x) => (x.id === p.id ? { ...x, status: "approved" } : x))); logAudit(`Approved Community post "${p.title}" from ${p.authorName}`); };
+  const reject = (p) => { save(communityPosts.map((x) => (x.id === p.id ? { ...x, status: "rejected" } : x))); logAudit(`Rejected Community post "${p.title}" from ${p.authorName}`); };
+  const remove = (p) => { save(communityPosts.filter((x) => x.id !== p.id)); logAudit(`Deleted Community post "${p.title}" from ${p.authorName}`); };
 
-  const myDogs = dogs.filter((d) => d.owner === myName);
-  const approved = gallery.filter((p) => p.status === "approved").sort((a, b) => b.createdAt - a.createdAt);
-  const mine = gallery.filter((p) => p.customerName === myName);
-  const myPending = mine.filter((p) => p.status !== "approved").sort((a, b) => b.createdAt - a.createdAt);
-
-  const onFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      if (dataUrl.length > 2_000_000) {
-        setWarning("That photo is too large — try a smaller image (most phone photos will need resizing or compressing first, similar to the QR code limit).");
-        if (fileRef.current) fileRef.current.value = "";
-        setDraftPhoto(null);
-        return;
-      }
-      setWarning("");
-      setDraftPhoto({ dataUrl });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const clearDraft = () => {
-    setDraftPhoto(null);
-    if (fileRef.current) fileRef.current.value = "";
-  };
-
-  const uploadPhoto = async () => {
-    if (!draftPhoto) return;
-    setUploading(true);
-    const entry = {
-      id: uid("photo_"), customerName: myName, customerId: myCustomerId, dogName: dogName || null,
-      description: description.trim(), imageDataUrl: draftPhoto.dataUrl,
-      status: "pending", createdAt: Date.now(), reviewedAt: null,
-    };
-    const next = [...gallery, entry];
-    setGallery(next);
-    await persist(K.gallery, next);
-    setUploading(false);
-    setJustSubmitted(true);
-    setDescription(""); setDogName(""); clearDraft();
-    setTimeout(() => setJustSubmitted(false), 7000);
-  };
-
-  return (
-    <div>
-      {viewingPhoto && <PhotoLightbox photo={viewingPhoto} onClose={() => setViewingPhoto(null)} />}
-      <SectionTitle eyebrow="Customer" title="Gallery" sub="Photos our customers have shared, reviewed by us before they show up here. Anyone can browse; sign in to share your own." />
-
-      {approved.length === 0 ? (
-        <Card style={{ marginBottom: 28 }}><p style={{ margin: 0, color: "var(--muted)" }}>No photos yet &mdash; be the first to share one!</p></Card>
-      ) : (
-        <div className="responsive-grid" style={{ marginBottom: 28 }}>
-          {approved.map((p) => (
-            <Card key={p.id} style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => setViewingPhoto(p)}>
-              <img src={p.imageDataUrl} alt="" style={{ width: "100%", display: "block" }} />
-              <div style={{ padding: 12 }}>
-                {p.description && <div style={{ fontSize: 13.5, marginBottom: 6 }}>{p.description}</div>}
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>{p.dogName ? `${p.dogName} · ` : ""}{p.customerName}</div>
-              </div>
-            </Card>
-          ))}
+  const PostCard = ({ p, actions }) => (
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      {p.images && p.images.length > 0 && (
+        <img src={p.images[0]} alt="" onClick={() => setViewingImages(p.images)} style={{ width: "100%", height: 150, objectFit: "cover", display: "block", cursor: "pointer" }} />
+      )}
+      <div style={{ padding: 12 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          <Pill>{p.topic}</Pill>
+          {p.breed && p.breed !== BREED_ALL && <Pill tone="good">{p.breed}</Pill>}
         </div>
-      )}
-
-      {myName && myPending.length > 0 && (
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Your submissions</div>
-          <div className="responsive-grid">
-            {myPending.map((p) => (
-              <Card key={p.id} style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => setViewingPhoto(p)}>
-                <img src={p.imageDataUrl} alt="" style={{ width: "100%", display: "block" }} />
-                <div style={{ padding: 12 }}>
-                  {p.description && <div style={{ fontSize: 13.5, marginBottom: 8 }}>{p.description}</div>}
-                  <Pill tone={p.status === "rejected" ? "bad" : "warn"}>{p.status === "rejected" ? "Not approved" : "Pending review"}</Pill>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Share a photo</div>
-      {config.galleryUploadEnabled === false ? (
-        <Card style={{ maxWidth: 480, background: "var(--tone-warn-bg)", border: "none" }}>
-          <p style={{ margin: 0, fontSize: 14 }}>{config.galleryFullMessage || "Our gallery is full. Mail us your pet photos to get featured on the gallery."}</p>
-        </Card>
-      ) : !myName ? (
-        <Card style={{ maxWidth: 480 }}><p style={{ margin: 0, fontSize: 14 }}>Sign in up top to share a photo of your own.</p></Card>
-      ) : (
-        <Card style={{ maxWidth: 480 }}>
-          {draftPhoto && (
-            <div style={{ marginBottom: 14 }}>
-              <img src={draftPhoto.dataUrl} alt="" style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: 12, background: "var(--surface-muted)", display: "block" }} />
-              <button onClick={clearDraft} style={{ background: "none", border: "none", color: "var(--clay)", cursor: "pointer", padding: 0, fontSize: 12.5, marginTop: 8, textDecoration: "underline" }}>Remove photo</button>
-            </div>
-          )}
-          <div style={{ marginBottom: 12 }}>
-            <input ref={fileRef} type="file" accept="image/*" onChange={onFile} disabled={uploading} />
-          </div>
-          {myDogs.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <Field label="Dog (optional)">
-                <select style={inputStyle} value={dogName} onChange={(e) => setDogName(e.target.value)} disabled={uploading}>
-                  <option value="">Not specified</option>
-                  {myDogs.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-                </select>
-              </Field>
-            </div>
-          )}
-          <Field label="Description (optional)">
-            <input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Goku loved the chicken and pumpkin bowl!" disabled={uploading} />
-          </Field>
-          {warning && <p style={{ color: "var(--clay)", fontSize: 12.5, marginTop: 10 }}>{warning}</p>}
-          <Btn full style={{ marginTop: 14 }} onClick={uploadPhoto} disabled={!draftPhoto} loadingText="Uploading…">
-            Upload photo
-          </Btn>
-          {justSubmitted && (
-            <div style={{ marginTop: 12 }}>
-              <InfoNote>Thanks! Your photo has been submitted and will appear here once it&apos;s been reviewed by us.</InfoNote>
-            </div>
-          )}
-        </Card>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Dashboard
-   ========================================================================= */
-
-function IngredientsNeededModal({ date, session, orders, config, onClose }) {
-  const relevant = orders.filter((o) => o.date === date && o.session === session && o.status !== "CANCELLED");
-  const totals = {};
-  relevant.forEach((o) => {
-    (o.ingredients || []).forEach((ing) => {
-      const k = `${ing.name}\u0002${ing.unit}`;
-      if (!totals[k]) totals[k] = { name: ing.name, unit: ing.unit, qty: 0 };
-      totals[k].qty += ing.qty;
-    });
-  });
-  const rows = Object.values(totals).sort((a, b) => b.qty - a.qty);
-
-  return (
-    <Modal onCancel={onClose} maxWidth={420}>
-      <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Ingredients needed</div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 16 }}>
-        {fmtDateLabel(date)} &middot; {config.sessions?.[session]?.label || session} &middot; across {relevant.length} order{relevant.length === 1 ? "" : "s"}
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{p.title}</div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>{p.authorName} &middot; {fmtDateTime(p.createdAt)}</div>
+        {p.content && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{p.content}</div>}
+        {actions}
       </div>
-      {rows.length === 0 ? (
-        <p style={{ fontSize: 14, color: "var(--muted)", margin: 0 }}>No orders booked into this slot yet.</p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "50vh", overflowY: "auto" }}>
-          {rows.map((r) => (
-            <div key={r.name + r.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--ring)" }}>
-              <span style={{ fontSize: 14 }}>{r.name}</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 14 }}>{Math.round(r.qty * 10) / 10} {r.unit}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <Btn full variant="ghost" style={{ marginTop: 18 }} onClick={onClose}>Close</Btn>
-    </Modal>
+    </Card>
   );
-}
-
-function nextServingWindow(config, orders) {
-  const today = todayStr();
-  // First: is there an earlier session (today or before) that still has
-  // orders that aren't done yet? If so, that's still "next up" in the
-  // sense that matters -- it hasn't actually been served, regardless of
-  // whether its scheduled time has technically passed.
-  const relevantDates = [...new Set((orders || []).map((o) => o.date))].filter((d) => d <= today).sort();
-  for (const date of relevantDates) {
-    for (const key of ["morning", "evening"]) {
-      const unfinished = (orders || []).some((o) => o.date === date && o.session === key && !["DELIVERED", "CANCELLED"].includes(o.status));
-      if (unfinished) return { date, session: key };
-    }
-  }
-  // Nothing outstanding -- fall back to the next upcoming slot by time.
-  const nowM = nowMin();
-  for (const key of ["morning", "evening"]) {
-    if (timeToMin(config.sessions[key].servingTime) >= nowM) return { date: today, session: key };
-  }
-  return { date: addDays(today, 1), session: "morning" };
-}
-
-function buildRouteUrl(ordersWithAddress, origin) {
-  const pts = ordersWithAddress.filter((o) => o.customerAddress && typeof o.customerAddress.lat === "number");
-  if (pts.length === 0) return null;
-  const stops = pts.map((o) => `${o.customerAddress.lat},${o.customerAddress.lng}`);
-  let url = "https://www.google.com/maps/dir/?api=1&travelmode=driving";
-  if (origin) {
-    // Round trip: start and end at the service area, every delivery as a
-    // waypoint in between -- covers "start from the service area, deliver
-    // everyone, come back to the service area."
-    url += `&origin=${origin.lat},${origin.lng}&destination=${origin.lat},${origin.lng}`;
-    url += `&waypoints=${encodeURIComponent(stops.join("|"))}`;
-  } else {
-    // No fixed service area to start from (e.g. delivering anywhere, no
-    // areas configured) -- let Maps use the device's current location.
-    const dest = stops[stops.length - 1];
-    const wp = stops.slice(0, -1).join("|");
-    url += `&destination=${dest}`;
-    if (wp) url += `&waypoints=${encodeURIComponent(wp)}`;
-  }
-  return url;
-}
-
-function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders, onRefresh }) {
-  const [newCustomersToday, setNewCustomersToday] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [dateIdx, setDateIdx] = useState(0);
-  const [showIngredientsNeeded, setShowIngredientsNeeded] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const list = await window.storage.list("dfp:customer:", true);
-        const today = todayStr();
-        let count = 0;
-        await Promise.all((list?.keys || []).map(async (k) => {
-          try {
-            const r = await window.storage.get(k, true);
-            const rec = JSON.parse(r.value);
-            if (rec?.createdAt && toDateStr(new Date(rec.createdAt)) === today) count++;
-          } catch {}
-        }));
-        setNewCustomersToday(count);
-      } catch { setNewCustomersToday(0); }
-    })();
-  }, [orders.length]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await onRefresh?.();
-    setRefreshing(false);
-  };
-
-  const date = todayStr();
-  const mealsToday = orders.filter((o) => o.date === date && o.status !== "CANCELLED");
-  const ordersCreatedToday = orders.filter((o) => toDateStr(new Date(o.createdAt)) === date);
-  const revenueToday = mealsToday.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0);
-  const pendingDelivery = mealsToday.filter((o) => ["CONFIRMED", "PREPARING", "COOKED", "PACKED", "OUT_FOR_DELIVERY"].includes(o.status)).length;
-  const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
-  const eveningMeals = mealsToday.filter((o) => o.session === "evening").length;
-
-  const next = nextServingWindow(config, orders);
-  const nextCount = slotCount(next.date, next.session, orders);
-
-  const activeToday = mealsToday;
-  const counts = {};
-  DASHBOARD_STATUSES.forEach((s) => (counts[s] = activeToday.filter((o) => o.status === s).length));
-
-  const todaysOrders = [...ordersCreatedToday].sort((a, b) => b.createdAt - a.createdAt);
-
-  const stats = [
-    { label: "Orders", value: ordersCreatedToday.length },
-    { label: "Revenue", value: rupee(revenueToday) },
-    { label: "Meals", value: mealsToday.length },
-    { label: "Morning", value: morningMeals },
-    { label: "Evening", value: eveningMeals },
-    { label: "New customers", value: newCustomersToday === null ? "…" : newCustomersToday },
-    { label: "Pending delivery", value: pendingDelivery },
-  ];
-
-  // The morning/evening capacity cards below can look at any of the next
-  // three days -- kept separate from "today" above, which drives the
-  // stats, next-serving card, and today's order list.
-  const dashDates = [todayStr(), addDays(todayStr(), 1), addDays(todayStr(), 2)];
-  const dashDateLabels = ["Today", "Tomorrow", "Day after"];
-  const selectedDate = dashDates[dateIdx];
-  const mealsForSelectedDate = orders.filter((o) => o.date === selectedDate && o.status !== "CANCELLED");
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-        <SectionTitle eyebrow="Admin" title="Today's operations" />
-        <Btn small variant="ghost" onClick={handleRefresh} loadingText={<><RefreshCw size={13} /> Refreshing…</>}><RefreshCw size={13} /> Refresh</Btn>
-      </div>
-      {config.orderingPaused && (
-        <Card style={{ marginBottom: 16, background: "var(--tone-bad-bg)", border: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
-            <Ban size={16} color="var(--clay)" />
-            Ordering is currently <b>paused</b> &mdash; customers can&apos;t place new orders. Resume it from Settings.
-          </div>
-        </Card>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 18 }}>
-        {stats.map((s) => (
-          <Card key={s.label} style={{ padding: "16px 18px" }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 }}>{s.value}</div>
-          </Card>
-        ))}
-      </div>
-
-      <Card
-        style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", cursor: "pointer" }}
-        onClick={() => onGoToOrders?.(next.date, next.session)}
-      >
-        <div style={{ background: "var(--leaf)", borderRadius: 10, padding: 9, display: "flex" }}><Clock size={17} color="#fff" /></div>
-        <div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase" }}>Next up to be served</div>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 }}>
-            {fmtDateLabel(next.date)} &middot; {config.sessions[next.session].label} at {fmtTime(config.sessions[next.session].servingTime)}
-          </div>
-        </div>
-        <Pill>{nextCount} booked</Pill>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={(e) => { e.stopPropagation(); setShowIngredientsNeeded(true); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: "var(--turmeric)", fontFamily: "var(--font-mono)", padding: 0 }}>Ingredients needed</button>
-          <span style={{ fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" }}>View orders &rarr;</span>
-        </div>
-      </Card>
-      {showIngredientsNeeded && (
-        <IngredientsNeededModal date={next.date} session={next.session} orders={orders} config={config} onClose={() => setShowIngredientsNeeded(false)} />
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        {dashDates.map((d, i) => (
-          <button key={d} onClick={() => setDateIdx(i)} className={"date-chip" + (i === dateIdx ? " active" : "")}>
-            {dashDateLabels[i]}
-          </button>
-        ))}
-      </div>
-
-      <div className="session-grid" style={{ marginBottom: 18 }}>
-        {["morning", "evening"].map((key) => {
-          const sess = config.sessions[key];
-          const capacity = resolveCapacity(selectedDate, key, config, slotOverrides);
-          const count = slotCount(selectedDate, key, orders);
-          const st = sessionState(selectedDate, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
-          const outForDelivery = mealsForSelectedDate.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
-
-          // Group by which service area each order matched at order time, so
-          // each area gets its own round-trip route instead of one combined
-          // route with no fixed starting point.
-          const groups = {};
-          outForDelivery.forEach((o) => {
-            const groupKey = o.locationName || "—no area—";
-            (groups[groupKey] = groups[groupKey] || []).push(o);
-          });
-
-          return (
-            <Card key={key}>
-              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <BowlGauge used={count} capacity={capacity} />
-                <div>
-                  <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 }}>{sess.label}</div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 6px" }}>Serving {fmtTime(sess.servingTime)}</div>
-                  <Pill tone={STATE_STYLE[st].tone}>{STATE_STYLE[st].label}</Pill>
-                </div>
-              </div>
-              {Object.keys(groups).length > 0 && (
-                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {Object.entries(groups).map(([areaName, groupOrders]) => {
-                    const area = locations.find((l) => l.name === areaName);
-                    const origin = area ? { lat: area.lat, lng: area.lng } : null;
-                    const routeUrl = buildRouteUrl(groupOrders, origin);
-                    return (
-                      <div key={areaName}>
-                        {routeUrl ? (
-                          <a href={routeUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-                            <Btn small variant="accent"><MapPin size={13} /> {areaName} — route for {groupOrders.length} {origin ? "(round trip)" : ""}</Btn>
-                          </a>
-                        ) : (
-                          <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>{groupOrders.length} out for delivery in {areaName}, but none have a saved address to map.</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-
-      <Card style={{ marginBottom: 18 }}>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 12 }}>Order pipeline &middot; today</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {DASHBOARD_STATUSES.map((s) => {
-            const Icon = STATUS_ICON[s];
-            return (
-              <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-muted)", borderRadius: 12, padding: "9px 13px" }}>
-                <Icon size={15} color="var(--leaf)" />
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{STATUS_LABEL[s]}</span>
-                <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>{counts[s]}</span>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Orders placed today</div>
-      {todaysOrders.length === 0 ? (
-        <Card><p style={{ margin: 0, color: "var(--muted)" }}>No orders placed yet today.</p></Card>
-      ) : (
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 560 }}>
-              <thead>
-                <tr style={{ background: "var(--surface-muted)", textAlign: "left" }}>
-                  {["Customer", "Dog", "Booked at", "Status", "Amount"].map((h) => (
-                    <th key={h} style={{ padding: "9px 14px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {todaysOrders.map((o) => {
-                  const pending = o.status === "PENDING_PAYMENT";
-                  const cancelled = o.status === "CANCELLED";
-                  return (
-                    <tr key={o.id} style={{ borderTop: "1px solid var(--ring)" }}>
-                      <td style={{ padding: "9px 14px" }}>{o.customerName}</td>
-                      <td style={{ padding: "9px 14px" }}>{o.dogSnapshot.name}</td>
-                      <td style={{ padding: "9px 14px", fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtDateTime(o.createdAt)}</td>
-                      <td style={{ padding: "9px 14px" }}><Pill tone={cancelled ? "bad" : pending ? "warn" : "good"}>{STATUS_LABEL[o.status]}</Pill></td>
-                      <td style={{ padding: "9px 14px", fontFamily: "var(--font-mono)" }}>
-                        {rupee(o.totalPrice)}{o.paymentMethod === "cod" && <> <Pill>COD</Pill></>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Orders
-   ========================================================================= */
-
-function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onConsumeInitialFilter, onRefresh }) {
-  const [openId, setOpenId] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [viewingInvoice, setViewingInvoice] = useState(null);
-  const handleRefresh = async () => { setRefreshing(true); await onRefresh?.(); setRefreshing(false); };
-  const [filters, setFilters] = useState({
-    orderSearch: "", customer: "", dog: "", session: "", date: "",
-    location: "", status: "", amountMin: "", amountMax: "",
-  });
-
-  // Arriving here from the dashboard's "Next up to be served" card: apply
-  // its date/session as a filter and open the panel so it's obvious why
-  // the list is narrowed.
-  useEffect(() => {
-    if (initialFilter) {
-      setFilters((f) => ({ ...f, date: initialFilter.date || "", session: initialFilter.session || "" }));
-      setShowFilters(true);
-      onConsumeInitialFilter?.();
-    }
-  }, [initialFilter]);
-
-  const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
-  const clearFilters = () => setFilters({ orderSearch: "", customer: "", dog: "", session: "", date: "", location: "", status: "", amountMin: "", amountMax: "" });
-  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
-
-  // Legacy orders (older than yesterday) stay fully intact in storage --
-  // this view just doesn't clutter itself with them by default. Nothing is
-  // deleted; Admin -> Data's exports and the underlying sheet still have
-  // everything.
-  const cutoff = addDays(todayStr(), -1);
-  const recentOrders = useMemo(() => orders.filter((o) => o.date >= cutoff), [orders, cutoff]);
-
-  const customerOptions = useMemo(() => [...new Set(recentOrders.map((o) => o.customerName))].sort(), [recentOrders]);
-  const dogOptions = useMemo(() => [...new Set(recentOrders.map((o) => o.dogSnapshot.name))].sort(), [recentOrders]);
-  const locationOptions = useMemo(() => [...new Set(recentOrders.map((o) => o.locationName).filter(Boolean))].sort(), [recentOrders]);
-
-  const filtered = useMemo(() => {
-    return [...recentOrders].sort((a, b) => b.createdAt - a.createdAt).filter((o) => {
-      if (filters.orderSearch && !o.id.toLowerCase().includes(filters.orderSearch.toLowerCase())) return false;
-      if (filters.customer && o.customerName !== filters.customer) return false;
-      if (filters.dog && o.dogSnapshot.name !== filters.dog) return false;
-      if (filters.session && o.session !== filters.session) return false;
-      if (filters.date && o.date !== filters.date) return false;
-      if (filters.location && o.locationName !== filters.location) return false;
-      if (filters.status && o.status !== filters.status) return false;
-      if (filters.amountMin && o.totalPrice < Number(filters.amountMin)) return false;
-      if (filters.amountMax && o.totalPrice > Number(filters.amountMax)) return false;
-      return true;
-    });
-  }, [recentOrders, filters]);
-
-  const confirmedTotal = useMemo(() => filtered.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0), [filtered]);
-  const [autoPrintOrder, setAutoPrintOrder] = useState(null);
-
-  const updateStatus = async (order, newStatus) => {
-    const next = orders.map((o) => (o.id === order.id
-      ? { ...o, status: newStatus, deliveredAt: newStatus === "DELIVERED" ? Date.now() : null }
-      : o));
-    setOrders(next);
-    await persist(K.orders, next);
-    logAudit(`Order for ${order.dogSnapshot.name} (${order.customerName}) moved to ${STATUS_LABEL[newStatus]}`);
-    if (newStatus === "CONFIRMED" && config.autoPrintOnConfirm) {
-      setAutoPrintOrder({ ...order, status: newStatus });
-    }
-  };
-
-  const copyTrackingLink = async (order) => {
-    const url = `${window.location.origin}${window.location.pathname}?order=${order.id}`;
-    await navigator.clipboard.writeText(url);
-    await new Promise((r) => setTimeout(r, 900)); // hold the "Copied!" confirmation long enough to actually notice
-  };
-
-  if (recentOrders.length === 0) return <div><SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." /><Card><p style={{ margin: 0 }}>No orders in this range yet.</p></Card></div>;
-
-  return (
-    <div>
-      {viewingInvoice && <InvoiceModal order={viewingInvoice} config={config} onClose={() => setViewingInvoice(null)} />}
-      {autoPrintOrder && <SilentPrintTrigger order={autoPrintOrder} config={config} onDone={() => setAutoPrintOrder(null)} />}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-        <SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." />
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn small variant="ghost" onClick={handleRefresh} loadingText={<><RefreshCw size={13} /> Refreshing…</>}><RefreshCw size={13} /> Refresh</Btn>
-          <Btn small variant={activeFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
-            <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-          </Btn>
-        </div>
-      </div>
-
-      {showFilters && (
-        <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
-            <Field label="Order"><input style={inputStyle} value={filters.orderSearch} onChange={(e) => setFilter("orderSearch", e.target.value)} placeholder="#id" /></Field>
-            <Field label="Customer">
-              <select style={inputStyle} value={filters.customer} onChange={(e) => setFilter("customer", e.target.value)}>
-                <option value="">All customers</option>
-                {customerOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-            <Field label="Dog">
-              <select style={inputStyle} value={filters.dog} onChange={(e) => setFilter("dog", e.target.value)}>
-                <option value="">All dogs</option>
-                {dogOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </Field>
-            <Field label="Slot &mdash; date"><input type="date" style={inputStyle} value={filters.date} onChange={(e) => setFilter("date", e.target.value)} /></Field>
-            <Field label="Slot &mdash; session">
-              <select style={inputStyle} value={filters.session} onChange={(e) => setFilter("session", e.target.value)}>
-                <option value="">All sessions</option>
-                <option value="morning">{config.sessions.morning.label}</option>
-                <option value="evening">{config.sessions.evening.label}</option>
-              </select>
-            </Field>
-            <Field label="Delivery area">
-              <select style={inputStyle} value={filters.location} onChange={(e) => setFilter("location", e.target.value)}>
-                <option value="">All areas</option>
-                {locationOptions.map((l) => <option key={l} value={l}>{l}</option>)}
-              </select>
-            </Field>
-            <Field label="Status">
-              <select style={inputStyle} value={filters.status} onChange={(e) => setFilter("status", e.target.value)}>
-                <option value="">All statuses</option>
-                {["PENDING_PAYMENT", ...STATUS_FLOW, "CANCELLED"].map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-              </select>
-            </Field>
-            <Field label="Amount min"><input type="number" min={0} style={inputStyle} value={filters.amountMin} onChange={(e) => setFilter("amountMin", e.target.value)} /></Field>
-            <Field label="Amount max"><input type="number" min={0} style={inputStyle} value={filters.amountMax} onChange={(e) => setFilter("amountMax", e.target.value)} /></Field>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }}>{filtered.length} of {recentOrders.length} order{recentOrders.length === 1 ? "" : "s"}</span>
-            {activeFilterCount > 0 && <Btn small variant="ghost" onClick={clearFilters}><X size={13} /> Clear filters</Btn>}
-          </div>
-        </Card>
-      )}
-
-      {filtered.length === 0 ? (
-        <Card><p style={{ margin: 0, color: "var(--muted)" }}>No orders match these filters.</p></Card>
-      ) : (
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 720 }}>
-            <thead>
-              <tr style={{ background: "var(--surface-muted)", textAlign: "left" }}>
-                {["Order", "Customer", "Dog", "Slot", "Ordered", "Status", "Amount", ""].map((h) => (
-                  <th key={h} style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--muted)" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((o) => {
-                const pending = o.status === "PENDING_PAYMENT";
-                return (
-                  <React.Fragment key={o.id}>
-                    <tr style={{ borderTop: "1px solid var(--ring)", cursor: "pointer" }} onClick={() => setOpenId(openId === o.id ? null : o.id)}>
-                      <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)" }}>#{o.id.slice(-6)}</td>
-                      <td style={{ padding: "10px 14px" }}>{o.customerName}</td>
-                      <td style={{ padding: "10px 14px" }}>{o.dogSnapshot.name}</td>
-                      <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12.5 }}>{fmtDateLabel(o.date)} &middot; {config.sessions[o.session]?.label}</td>
-                      <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtDateTime(o.createdAt)}</td>
-                      <td style={{ padding: "10px 14px" }}><Pill tone={o.status === "CANCELLED" ? "bad" : pending ? "warn" : "good"}>{STATUS_LABEL[o.status]}</Pill></td>
-                      <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)" }}>
-                        {rupee(o.totalPrice)}{o.paymentMethod === "cod" && <> <Pill>COD</Pill></>}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}><ChevronDown size={15} style={{ transform: openId === o.id ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} /></td>
-                    </tr>
-                    {openId === o.id && (
-                      <tr>
-                        <td colSpan={8} style={{ padding: "14px 20px", background: "var(--surface-muted)", borderTop: "1px dashed var(--ring-strong)" }}>
-                          <div className="form-grid-2">
-                            <div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Customer</div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>{o.customerName}{o.customerPhone && <> &middot; {o.customerPhone}</>}</div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginTop: 14, marginBottom: 6 }}>Dog</div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>{o.dogSnapshot.breed} &middot; {formatAge(o.dogSnapshot.ageMonths)} &middot; {o.dogSnapshot.weightKg} kg &middot; {ACTIVITY_LABEL[o.dogSnapshot.activity]} activity</div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginTop: 14, marginBottom: 6 }}>Timing</div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>
-                                <div>Ordered: {fmtDateTime(o.createdAt)}</div>
-                                {o.deliveredAt ? <div>Delivered: {fmtDateTime(o.deliveredAt)}</div> : <div style={{ color: "var(--ring-strong)" }}>Not delivered yet</div>}
-                                <div>Payment: {o.paymentMethod === "cod" ? "Cash on Delivery" : "UPI / QR"}</div>
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Food snapshot</div>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>
-                                {o.ingredients.map((i) => <div key={i.id} style={{ display: "flex", justifyContent: "space-between", maxWidth: 240 }}><span>{i.name}</span><span>{i.qty} {i.unit}</span></div>)}
-                                {o.deliveryFee > 0 && <div style={{ display: "flex", justifyContent: "space-between", maxWidth: 240 }}><span>Delivery{o.locationName ? ` (${o.locationName})` : ""}</span><span>{rupee(o.deliveryFee)}</span></div>}
-                                {o.gstAmount > 0 && <div style={{ display: "flex", justifyContent: "space-between", maxWidth: 240 }}><span>GST ({o.gstPercent}%)</span><span>{rupee(o.gstAmount)}</span></div>}
-                              </div>
-                            </div>
-                            <div style={{ gridColumn: "1 / -1" }}>
-                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginTop: 4, marginBottom: 6 }}>Delivery address</div>
-                              {o.customerAddress ? (
-                                <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: 1.8 }}>
-                                  <div><b>{o.customerAddress.label}</b> &middot; {o.customerAddress.address}</div>
-                                  <div style={{ color: "var(--muted)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                    <span>{o.customerAddress.lat.toFixed(5)}, {o.customerAddress.lng.toFixed(5)}</span>
-                                    {o.locationName && <span>&middot; {o.distanceKm != null ? `${o.distanceKm} km from ${o.locationName}` : o.locationName}</span>}
-                                    <a href={`https://www.google.com/maps?q=${o.customerAddress.lat},${o.customerAddress.lng}`} target="_blank" rel="noopener noreferrer" style={{ color: "var(--leaf)", textDecoration: "underline" }}>View on map</a>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--ring-strong)" }}>No address on file for this order.</div>
-                              )}
-                            </div>
-                          </div>
-                          {pending ? (
-                            <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-                              <Btn small variant="accent" onClick={() => updateStatus(o, "CONFIRMED")}><Check size={13} /> Confirm payment received</Btn>
-                              <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}><Ban size={13} /> Reject / cancel</Btn>
-                              <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
-                              <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
-                            </div>
-                          ) : o.status !== "CANCELLED" ? (
-                            <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-                              {STATUS_FLOW.map((s) => (
-                                <Btn key={s} small variant={o.status === s ? "primary" : "outline"} onClick={() => updateStatus(o, s)}>{STATUS_LABEL[s]}</Btn>
-                              ))}
-                              <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}><Ban size={13} /> Cancel</Btn>
-                              <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
-                              <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-                              <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
-                              <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      )}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-        <Card style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 22px" }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", textTransform: "uppercase" }}>Total &middot; confirmed orders</div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700 }}>{rupee(confirmedTotal)}</div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Ingredients (edit, add, remove)
-   ========================================================================= */
-
-function AdminIngredients({ ingredients, setIngredients, logAudit }) {
-  const [newIng, setNewIng] = useState({ name: "", category: "Other", unit: "g", quantityAdjustable: false, baseRatePerKg: 1, pricePer100g: 30, pricePerUnit: 5, min: 1, max: 3, default: 1 });
-
-  const update = (id, patch) => setIngredients(ingredients.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-  const saveAll = async () => { await persist(K.ingredients, ingredients); logAudit("Updated ingredient catalog"); };
-  const removeIng = async (id) => {
-    const next = ingredients.filter((i) => i.id !== id);
-    setIngredients(next);
-    await persist(K.ingredients, next);
-    logAudit(`Removed ingredient "${id}" from the catalog`);
-  };
-
-  const addIngredient = async () => {
-    if (!newIng.name.trim()) return;
-    const id = slugify(newIng.name) + "_" + uid();
-    const displayOrder = (Math.max(0, ...ingredients.map((i) => i.displayOrder)) || 0) + 1;
-    const entry = {
-      id, name: newIng.name.trim(), category: newIng.category, unit: newIng.unit,
-      available: true, customerSelectable: true, quantityAdjustable: newIng.unit === "count" ? true : newIng.quantityAdjustable,
-      autoIncluded: false, displayOrder,
-      baseRatePerKg: newIng.unit === "g" ? Number(newIng.baseRatePerKg) : 0,
-      pricePerUnit: newIng.unit === "g" ? Number(newIng.pricePer100g) / 100 : Number(newIng.pricePerUnit),
-      min: Number(newIng.min), max: Number(newIng.max), default: Number(newIng.min) || 1,
-    };
-    const next = [...ingredients, entry];
-    setIngredients(next);
-    await persist(K.ingredients, next);
-    logAudit(`Added ingredient "${entry.name}" to the catalog`);
-    setNewIng({ name: "", category: "Other", unit: "g", quantityAdjustable: false, baseRatePerKg: 1, pricePer100g: 30, pricePerUnit: 5, min: 1, max: 3, default: 1 });
-  };
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="Ingredients" />
-      <InfoNote>
-        <b>How a meal's price is calculated:</b> price = &sum; (quantity of each selected ingredient &times; its price).
-        Staple ingredients get their quantity from the <b>rate</b> below — grams per kg of the dog's body weight, then
-        adjusted for breed size, age and activity in the Rules tab. Customer-adjustable ingredients (like egg) are priced
-        per unit the customer picks. Gram-based ingredients are priced here per 100&nbsp;g for convenience.
-      </InfoNote>
-      <Card style={{ padding: 0, overflow: "hidden", marginTop: 14 }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 800 }}>
-            <thead>
-              <tr style={{ background: "var(--surface-muted)", textAlign: "left" }}>
-                {["Ingredient", "Available", "Selectable", "Adjustable", "Rate g/kg", "Min", "Max", "Default", "Price", ""].map((h) => (
-                  <th key={h} style={{ padding: "9px 10px", fontFamily: "var(--font-mono)", fontSize: 10.5, textTransform: "uppercase", color: "var(--muted)", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ingredients.sort((a, b) => a.displayOrder - b.displayOrder).map((ing) => (
-                <tr key={ing.id} style={{ borderTop: "1px solid var(--ring)" }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 600 }}>{ing.name}</td>
-                  <td style={{ padding: "8px 10px" }}><input type="checkbox" checked={ing.available} onChange={(e) => update(ing.id, { available: e.target.checked })} /></td>
-                  <td style={{ padding: "8px 10px" }}><input type="checkbox" checked={ing.customerSelectable} onChange={(e) => update(ing.id, { customerSelectable: e.target.checked })} /></td>
-                  <td style={{ padding: "8px 10px" }}><input type="checkbox" checked={ing.quantityAdjustable} onChange={(e) => update(ing.id, { quantityAdjustable: e.target.checked })} /></td>
-                  <td style={{ padding: "8px 10px" }}>
-                    {ing.quantityAdjustable ? <span style={{ color: "var(--ring-strong)" }}>&mdash;</span> :
-                      <input type="number" step="0.1" style={{ ...inputStyle, width: 64, padding: "5px 7px" }} value={ing.baseRatePerKg} onChange={(e) => update(ing.id, { baseRatePerKg: Number(e.target.value) })} />}
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>{ing.quantityAdjustable ? <input type="number" style={{ ...inputStyle, width: 52, padding: "5px 7px" }} value={ing.min} onChange={(e) => update(ing.id, { min: Number(e.target.value) })} /> : <span style={{ color: "var(--ring-strong)" }}>&mdash;</span>}</td>
-                  <td style={{ padding: "8px 10px" }}>{ing.quantityAdjustable ? <input type="number" style={{ ...inputStyle, width: 52, padding: "5px 7px" }} value={ing.max} onChange={(e) => update(ing.id, { max: Number(e.target.value) })} /> : <span style={{ color: "var(--ring-strong)" }}>&mdash;</span>}</td>
-                  <td style={{ padding: "8px 10px" }}>{ing.quantityAdjustable ? <input type="number" style={{ ...inputStyle, width: 52, padding: "5px 7px" }} value={ing.default} onChange={(e) => update(ing.id, { default: Number(e.target.value) })} /> : <span style={{ color: "var(--ring-strong)" }}>&mdash;</span>}</td>
-                  <td style={{ padding: "8px 10px" }}>
-                    {ing.unit === "g" ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <input type="number" step="1" style={{ ...inputStyle, width: 70, padding: "5px 7px" }} value={Math.round(ing.pricePerUnit * 100 * 100) / 100} onChange={(e) => update(ing.id, { pricePerUnit: Number(e.target.value) / 100 })} />
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>/100g</span>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <input type="number" step="0.5" style={{ ...inputStyle, width: 60, padding: "5px 7px" }} value={ing.pricePerUnit} onChange={(e) => update(ing.id, { pricePerUnit: Number(e.target.value) })} />
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>/unit</span>
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: "8px 10px" }}><button onClick={() => removeIng(ing.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)" }}><Trash2 size={15} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      <Btn onClick={saveAll} style={{ marginTop: 14 }}><Save size={15} /> Save ingredient catalog</Btn>
-
-      <Card style={{ marginTop: 20, maxWidth: 560 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 }}>Add a new ingredient</div>
-        <div className="form-grid-2">
-          <div style={{ gridColumn: "1 / -1" }}><Field label="Name"><input style={inputStyle} value={newIng.name} onChange={(e) => setNewIng({ ...newIng, name: e.target.value })} placeholder="Bone broth" /></Field></div>
-          <Field label="Category"><input style={inputStyle} value={newIng.category} onChange={(e) => setNewIng({ ...newIng, category: e.target.value })} /></Field>
-          <Field label="Unit">
-            <select style={inputStyle} value={newIng.unit} onChange={(e) => setNewIng({ ...newIng, unit: e.target.value })}>
-              <option value="g">Grams (auto-portioned)</option>
-              <option value="count">Count (customer-adjustable)</option>
-            </select>
-          </Field>
-          {newIng.unit === "g" ? (
-            <>
-              <Field label="Rate (g per kg body weight)"><input type="number" step="0.1" style={inputStyle} value={newIng.baseRatePerKg} onChange={(e) => setNewIng({ ...newIng, baseRatePerKg: e.target.value })} /></Field>
-              <Field label="Price per 100g (₹)"><input type="number" step="1" style={inputStyle} value={newIng.pricePer100g} onChange={(e) => setNewIng({ ...newIng, pricePer100g: e.target.value })} /></Field>
-            </>
-          ) : (
-            <>
-              <Field label="Price per unit (₹)"><input type="number" step="0.5" style={inputStyle} value={newIng.pricePerUnit} onChange={(e) => setNewIng({ ...newIng, pricePerUnit: e.target.value })} /></Field>
-              <div className="form-grid-2" style={{ gridColumn: "1 / -1" }}>
-                <Field label="Min"><input type="number" style={inputStyle} value={newIng.min} onChange={(e) => setNewIng({ ...newIng, min: e.target.value })} /></Field>
-                <Field label="Max"><input type="number" style={inputStyle} value={newIng.max} onChange={(e) => setNewIng({ ...newIng, max: e.target.value })} /></Field>
-              </div>
-            </>
-          )}
-        </div>
-        <Btn onClick={addIngredient} style={{ marginTop: 14 }}><Plus size={15} /> Add ingredient</Btn>
-      </Card>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Rules (breeds + calculation engine)
-   ========================================================================= */
-
-function AdminRules({ breeds, setBreeds, engine, setEngine, logAudit }) {
-  const [newBreed, setNewBreed] = useState("");
-  const saveBreeds = async (next) => { setBreeds(next); await persist(K.breeds, next); };
-  const saveEngine = async (next) => { setEngine(next); await persist(K.engine, next); };
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="Nutrition & quantity rules" />
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Quantity = weight &times; ingredient rate &times; breed size &times; age &times; activity</div>
-        <div className="form-grid-3">
-          {["puppy", "adult", "senior"].map((k) => (
-            <Field key={k} label={`Age factor — ${k}`}><input type="number" step="0.05" style={inputStyle} value={engine.ageFactors[k]} onChange={(e) => saveEngine({ ...engine, ageFactors: { ...engine.ageFactors, [k]: Number(e.target.value) } })} /></Field>
-          ))}
-          {["low", "medium", "high"].map((k) => (
-            <Field key={k} label={`Activity factor — ${k}`}><input type="number" step="0.05" style={inputStyle} value={engine.activityFactors[k]} onChange={(e) => saveEngine({ ...engine, activityFactors: { ...engine.activityFactors, [k]: Number(e.target.value) } })} /></Field>
-          ))}
-        </div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginTop: 10 }}>Puppy &lt; 12 months &middot; Adult 12&ndash;84 months &middot; Senior &gt; 84 months. Saved instantly.</div>
-      </Card>
-      <Card>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Breed size factors</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {breeds.map((b, i) => (
-            <div key={b.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--ring)" }}>
-              <input type="checkbox" checked={b.available} onChange={(e) => { const next = [...breeds]; next[i] = { ...b, available: e.target.checked }; saveBreeds(next); }} />
-              <span style={{ flex: 1, fontSize: 14 }}>{b.name}</span>
-              <input type="number" step="0.05" style={{ ...inputStyle, width: 74 }} value={b.sizeFactor} onChange={(e) => { const next = [...breeds]; next[i] = { ...b, sizeFactor: Number(e.target.value) }; saveBreeds(next); }} />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          <input style={{ ...inputStyle, flex: 1, minWidth: 160 }} placeholder="New breed name" value={newBreed} onChange={(e) => setNewBreed(e.target.value)} />
-          <Btn small onClick={() => { if (!newBreed.trim()) return; saveBreeds([...breeds, { name: newBreed.trim(), sizeFactor: 1.0, available: true }]); logAudit(`Added breed "${newBreed.trim()}"`); setNewBreed(""); }}><Plus size={14} /> Add breed</Btn>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Settings
-   ========================================================================= */
-
-function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
-  const update = (key, patch) => setConfig({ ...config, sessions: { ...config.sessions, [key]: { ...config.sessions[key], ...patch } } });
-  const updateIdentity = (patch) => setConfig({ ...config, ...patch });
-  // Text/number fields update local state on every keystroke (so typing
-  // feels instant) and only actually persist to storage on blur -- once,
-  // when the field is done being edited, rather than on every keystroke.
-  const commitConfig = async () => { await persist(K.config, config); };
-  // Discrete click actions (the GST toggle) have no blur event to hook,
-  // so they persist immediately instead.
-  const updateIdentityNow = async (patch) => {
-    const next = { ...config, ...patch };
-    setConfig(next);
-    await persist(K.config, next);
-  };
-  const logoFileRef = useRef(null);
-  const [logoWarning, setLogoWarning] = useState("");
-  const onLogoFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      if (dataUrl.length > 1_000_000) {
-        setLogoWarning("That image is too large for a logo -- use a small square icon (usually well under 500KB).");
-        if (logoFileRef.current) logoFileRef.current.value = "";
-        return;
-      }
-      setLogoWarning("");
-      updateIdentityNow({ logoDataUrl: dataUrl });
-    };
-    reader.readAsDataURL(file);
-  };
-  const removeLogo = () => updateIdentityNow({ logoDataUrl: "" });
-
-  const addChecklistItem = () => {
-    const next = [...(config.mealChecklist || []), { id: uid("check_"), text: "" }];
-    return updateIdentityNow({ mealChecklist: next });
-  };
-  const updateChecklistItemLocal = (id, text) => {
-    setConfig({ ...config, mealChecklist: config.mealChecklist.map((i) => (i.id === id ? { ...i, text } : i)) });
-  };
-  const removeChecklistItem = (id) => {
-    return updateIdentityNow({ mealChecklist: config.mealChecklist.filter((i) => i.id !== id) });
-  };
-
-  const cancelToday = async (key) => { const next = [...cancelledSlots, { date: todayStr(), session: key }]; setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Cancelled today's ${config.sessions[key].label} serving`); };
-  const uncancelToday = async (key) => { const next = cancelledSlots.filter((c) => !(c.date === todayStr() && c.session === key)); setCancelledSlots(next); await persist(K.cancelledSlots, next); logAudit(`Reinstated today's ${config.sessions[key].label} serving`); };
-  const forceOpenToday = async (key) => { const next = [...forceOpenSlots, { date: todayStr(), session: key }]; setForceOpenSlots(next); await persist(K.forceOpenSlots, next); logAudit(`Manually reopened today's ${config.sessions[key].label} serving`); };
-  const undoForceOpen = async (key) => { const next = forceOpenSlots.filter((f) => !(f.date === todayStr() && f.session === key)); setForceOpenSlots(next); await persist(K.forceOpenSlots, next); logAudit(`Reverted today's ${config.sessions[key].label} serving to scheduled hours`); };
-
-  // -- Future dates & slots (any date, not just today) --
-  const [pickDate, setPickDate] = useState(todayStr());
-  const [pickSession, setPickSession] = useState("morning");
-  const [capacityInput, setCapacityInput] = useState("");
-
-  const currentOverride = slotOverrides.find((o) => o.date === pickDate && o.session === pickSession);
-  const pickIsCancelled = cancelledSlots.some((c) => c.date === pickDate && c.session === pickSession);
-  const pickIsForced = forceOpenSlots.some((f) => f.date === pickDate && f.session === pickSession);
-  const pickState = sessionState(pickDate, pickSession, config, [], cancelledSlots, forceOpenSlots, slotOverrides);
-  const pickCapacity = resolveCapacity(pickDate, pickSession, config, slotOverrides);
-
-  const setOverrideCapacity = async () => {
-    const cap = Number(capacityInput);
-    if (Number.isNaN(cap) || cap < 0) return;
-    const next = [...slotOverrides.filter((o) => !(o.date === pickDate && o.session === pickSession)), { date: pickDate, session: pickSession, capacity: cap }];
-    setSlotOverrides(next);
-    await persist(K.slotOverrides, next);
-    logAudit(`Set ${config.sessions[pickSession].label} capacity on ${pickDate} to ${cap}`);
-    setCapacityInput("");
-  };
-  const clearOverrideCapacity = async () => {
-    const next = slotOverrides.filter((o) => !(o.date === pickDate && o.session === pickSession));
-    setSlotOverrides(next);
-    await persist(K.slotOverrides, next);
-    logAudit(`Reset ${config.sessions[pickSession].label} capacity on ${pickDate} to the default`);
-  };
-  const cancelPickedDate = async () => {
-    const next = [...cancelledSlots, { date: pickDate, session: pickSession }];
-    setCancelledSlots(next); await persist(K.cancelledSlots, next);
-    logAudit(`Cancelled the ${config.sessions[pickSession].label} serving on ${pickDate}`);
-  };
-  const uncancelPickedDate = async () => {
-    const next = cancelledSlots.filter((c) => !(c.date === pickDate && c.session === pickSession));
-    setCancelledSlots(next); await persist(K.cancelledSlots, next);
-    logAudit(`Reinstated the ${config.sessions[pickSession].label} serving on ${pickDate}`);
-  };
-  const forceOpenPickedDate = async () => {
-    const next = [...forceOpenSlots, { date: pickDate, session: pickSession }];
-    setForceOpenSlots(next); await persist(K.forceOpenSlots, next);
-    logAudit(`Manually opened the ${config.sessions[pickSession].label} serving on ${pickDate}`);
-  };
-  const undoForceOpenPickedDate = async () => {
-    const next = forceOpenSlots.filter((f) => !(f.date === pickDate && f.session === pickSession));
-    setForceOpenSlots(next); await persist(K.forceOpenSlots, next);
-    logAudit(`Reverted the ${config.sessions[pickSession].label} serving on ${pickDate} to scheduled hours`);
-  };
-
-  const toggleOrdering = async () => {
-    const next = { ...config, orderingPaused: !config.orderingPaused };
-    setConfig(next);
-    await persist(K.config, next);
-    logAudit(next.orderingPaused ? "Paused new orders" : "Resumed accepting new orders");
-  };
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="Operations settings" />
-
-      <Card style={{ marginBottom: 16, background: config.orderingPaused ? "var(--tone-bad-bg)" : undefined, border: config.orderingPaused ? "none" : undefined }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <Ban size={17} color={config.orderingPaused ? "var(--clay)" : "var(--leaf)"} />
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Ordering</div>
-          <Pill tone={config.orderingPaused ? "bad" : "good"}>{config.orderingPaused ? "Paused" : "Accepting orders"}</Pill>
-        </div>
-        <p style={{ fontSize: 13.5, color: "var(--muted)", margin: "0 0 14px" }}>
-          {config.orderingPaused
-            ? "Customers can't place new orders right now. Anyone with an existing order can still see it in My Orders."
-            : "Customers can place orders normally. Pausing stops new orders instantly, without affecting orders already placed."}
-        </p>
-        <Btn variant={config.orderingPaused ? "accent" : "danger"} onClick={toggleOrdering}>
-          {config.orderingPaused ? <><Check size={15} /> Resume accepting orders</> : <><Ban size={15} /> Pause new orders</>}
-        </Btn>
-        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed var(--ring-strong)" }}>
-          <Field label="Message shown to customers while paused">
-            <input style={inputStyle} value={config.orderingPausedMessage} onChange={(e) => updateIdentity({ orderingPausedMessage: e.target.value })} onBlur={commitConfig} placeholder="We're not taking new orders right now. Please check back soon." />
-          </Field>
-          <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Saves automatically when you click away from the field.</p>
-        </div>
-      </Card>
-
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <Building2 size={17} color="var(--leaf)" />
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Business identity</div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-          {config.logoDataUrl ? (
-            <img src={config.logoDataUrl} alt="Logo" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", border: "1px solid var(--ring)" }} />
-          ) : (
-            <div style={{ width: 44, height: 44, borderRadius: 10, background: "var(--leaf)", display: "flex", alignItems: "center", justifyContent: "center" }}><Dog size={20} color="#fff" /></div>
-          )}
-          <Btn small variant="ghost" onClick={() => logoFileRef.current?.click()}><Upload size={13} /> {config.logoDataUrl ? "Replace logo" : "Upload logo"}</Btn>
-          {config.logoDataUrl && <Btn small variant="ghost" onClick={removeLogo}><Trash2 size={13} /> Remove</Btn>}
-          <input ref={logoFileRef} type="file" accept="image/*" onChange={onLogoFile} style={{ display: "none" }} />
-        </div>
-        {logoWarning && <p style={{ fontSize: 12, color: "var(--clay)", marginBottom: 12 }}>{logoWarning}</p>}
-        <div className="form-grid-2">
-          <Field label="Business name"><input style={inputStyle} value={config.serviceName} onChange={(e) => updateIdentity({ serviceName: e.target.value })} onBlur={commitConfig} /></Field>
-          <Field label="Tagline"><input style={inputStyle} value={config.tagline} onChange={(e) => updateIdentity({ tagline: e.target.value })} onBlur={commitConfig} /></Field>
-          <Field label="Contact email"><input type="email" style={inputStyle} value={config.contactEmail} onChange={(e) => updateIdentity({ contactEmail: e.target.value })} onBlur={commitConfig} placeholder="hello@secondbowl.com" /></Field>
-          <Field label="Contact phone"><input style={inputStyle} value={config.contactPhone} onChange={(e) => updateIdentity({ contactPhone: e.target.value })} onBlur={commitConfig} placeholder="+91 90000 00000" /></Field>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <Field label="About us">
-            <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical" }} value={config.aboutUs} onChange={(e) => updateIdentity({ aboutUs: e.target.value })} onBlur={commitConfig} placeholder="What we are, and what we do." />
-          </Field>
-        </div>
-        <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>Shown to customers on the Contact tab, under the contact details.</p>
-      </Card>
-
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Billing</div>
-        <div className="form-grid-2">
-          <Field label="Currency symbol"><input style={inputStyle} value={config.currencySymbol} onChange={(e) => updateIdentity({ currencySymbol: e.target.value })} onBlur={commitConfig} placeholder="₹" /></Field>
-          <Field label="GST rate (%)"><input type="number" min={0} step="0.5" style={inputStyle} value={config.gstPercent} onChange={(e) => updateIdentity({ gstPercent: Number(e.target.value) })} onBlur={commitConfig} disabled={!config.gstEnabled} /></Field>
-          <Field label="GST number (GSTIN)"><input style={inputStyle} value={config.gstNumber} onChange={(e) => updateIdentity({ gstNumber: e.target.value })} onBlur={commitConfig} placeholder="22AAAAA0000A1Z5" disabled={!config.gstEnabled} /></Field>
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <Btn small variant={config.gstEnabled ? "accent" : "ghost"} onClick={() => updateIdentityNow({ gstEnabled: !config.gstEnabled })}>
-            {config.gstEnabled ? "GST is ON — click to turn off" : "GST is OFF — click to turn on"}
-          </Btn>
-        </div>
-        <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>When GST is on, it's added on top of food + delivery for every new order and shown as its own line item to customers and in Orders. Doesn't apply to orders already placed.</p>
-      </Card>
-
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Meal builder checklist</div>
-        <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>Shown as checked-by-default checkboxes on the Order Food page, just above the total. Add as many as you like.</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {(config.mealChecklist || []).map((item) => (
-            <div key={item.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                style={{ ...inputStyle, flex: 1 }} value={item.text}
-                onChange={(e) => updateChecklistItemLocal(item.id, e.target.value)}
-                onBlur={commitConfig}
-                placeholder="A pinch of salt, turmeric and ghee will be added."
-              />
-              <button onClick={() => removeChecklistItem(item.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 }}><Trash2 size={15} /></button>
-            </div>
-          ))}
-          {(config.mealChecklist || []).length === 0 && <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>No checklist items yet.</p>}
-        </div>
-        <Btn small variant="ghost" style={{ marginTop: 12 }} onClick={addChecklistItem}><Plus size={13} /> Add item</Btn>
-      </Card>
-
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Default schedule &amp; today</div>
-      <div className="session-grid">
-        {["morning", "evening"].map((key) => {
-          const sess = config.sessions[key];
-          const st = sessionState(todayStr(), key, config, [], cancelledSlots, forceOpenSlots, slotOverrides);
-          const isCancelled = cancelledSlots.some((c) => c.date === todayStr() && c.session === key);
-          const isForced = forceOpenSlots.some((f) => f.date === todayStr() && f.session === key);
-          return (
-            <Card key={key}>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17, marginBottom: 12 }}>{sess.label} session</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <Field label="Serving time"><input type="time" style={inputStyle} value={sess.servingTime} onChange={(e) => update(key, { servingTime: e.target.value })} onBlur={commitConfig} /></Field>
-                <Field label="Orders close at"><input type="time" style={inputStyle} value={sess.closeTime} onChange={(e) => update(key, { closeTime: e.target.value })} onBlur={commitConfig} /></Field>
-                <Field label="Default capacity (orders)"><input type="number" min={0} style={inputStyle} value={sess.capacity} onChange={(e) => update(key, { capacity: Number(e.target.value) })} onBlur={commitConfig} /></Field>
-              </div>
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div>Today&apos;s status: <Pill tone={STATE_STYLE[st].tone}>{STATE_STYLE[st].label}</Pill></div>
-                {isCancelled ? <Btn small variant="ghost" onClick={() => uncancelToday(key)}><RefreshCw size={13} /> Reinstate today&apos;s session</Btn> : <Btn small variant="danger" onClick={() => cancelToday(key)}><Ban size={13} /> Cancel today&apos;s session</Btn>}
-                {!isCancelled && (isForced ? <Btn small variant="ghost" onClick={() => undoForceOpen(key)}><Clock size={13} /> Revert to scheduled hours</Btn> : <Btn small variant="accent" onClick={() => forceOpenToday(key)}><Unlock size={13} /> Open this slot now</Btn>)}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-      <p style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 16, marginBottom: 28, maxWidth: 560 }}>
-        Every field above saves itself automatically (as soon as you click away from it, or immediately for toggles) &mdash; there's nothing separate to save. Reducing capacity below the number of orders already placed will never cancel those confirmed orders &mdash; it only blocks new ones. "Open this slot now" overrides today's close time so customers can keep ordering past the scheduled cutoff, until it's full or you revert it.
-      </p>
-
-      <SectionTitle eyebrow="Admin" title="Future dates & slots" sub="Override capacity, or cancel / force-open, for any specific date instead of just today. Customers can currently book up to 14 days ahead." />
-      <Card style={{ maxWidth: 460 }}>
-        <div className="form-grid-2" style={{ marginBottom: 14 }}>
-          <Field label="Date"><input type="date" style={inputStyle} value={pickDate} min={todayStr()} onChange={(e) => setPickDate(e.target.value)} /></Field>
-          <Field label="Session">
-            <select style={inputStyle} value={pickSession} onChange={(e) => setPickSession(e.target.value)}>
-              <option value="morning">{config.sessions.morning.label}</option>
-              <option value="evening">{config.sessions.evening.label}</option>
-            </select>
-          </Field>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13.5 }}>Current status:</span>
-          <Pill tone={STATE_STYLE[pickState].tone}>{STATE_STYLE[pickState].label}</Pill>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>
-            Capacity: {pickCapacity} {currentOverride ? "(custom)" : "(default)"}
-          </span>
-        </div>
-
-        <Field label={`Set capacity for ${fmtDateLabel(pickDate)} — ${config.sessions[pickSession].label}`}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input type="number" min={0} style={inputStyle} value={capacityInput} onChange={(e) => setCapacityInput(e.target.value)} placeholder={String(pickCapacity)} />
-            <Btn small onClick={setOverrideCapacity}>Set</Btn>
-          </div>
-        </Field>
-        {currentOverride && <Btn small variant="ghost" style={{ marginTop: 8 }} onClick={clearOverrideCapacity}><RefreshCw size={13} /> Reset to default capacity</Btn>}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px dashed var(--ring-strong)" }}>
-          {pickIsCancelled
-            ? <Btn small variant="ghost" onClick={uncancelPickedDate}><RefreshCw size={13} /> Reinstate this serving</Btn>
-            : <Btn small variant="danger" onClick={cancelPickedDate}><Ban size={13} /> Cancel this serving</Btn>}
-          {!pickIsCancelled && (pickIsForced
-            ? <Btn small variant="ghost" onClick={undoForceOpenPickedDate}><Clock size={13} /> Revert to scheduled hours</Btn>
-            : <Btn small variant="accent" onClick={forceOpenPickedDate}><Unlock size={13} /> Force this slot open</Btn>)}
-        </div>
-      </Card>
-    </div>
-  );
-
-}
-
-/* ============================================================================
-   ADMIN: Delivery areas (locations + fees)
-   ========================================================================= */
-
-function AdminLocations({ locations, setLocations, logAudit }) {
-  const [form, setForm] = useState({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
-  const [geoBusy, setGeoBusy] = useState(false);
-  const save = async (next) => { setLocations(next); await persist(K.locations, next); };
-
-  const useDeviceLocation = () => {
-    setGeoBusy(true);
-    navigator.geolocation?.getCurrentPosition(
-      (pos) => { setForm({ ...form, lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5) }); setGeoBusy(false); },
-      () => setGeoBusy(false), { timeout: 8000 }
-    );
-  };
-  const addFormTier = () => {
-    const lastMax = form.tiers.length ? form.tiers[form.tiers.length - 1].maxKm : 0;
-    setForm({ ...form, tiers: [...form.tiers, { maxKm: lastMax + 2, fee: 0 }] });
-  };
-  const updateFormTier = (i, patch) => {
-    const tiers = form.tiers.map((t, idx) => (idx === i ? { ...t, ...patch } : t));
-    setForm({ ...form, tiers });
-  };
-  const removeFormTier = (i) => setForm({ ...form, tiers: form.tiers.filter((_, idx) => idx !== i) });
-
-  const addLocation = () => {
-    const lat = parseFloat(form.lat), lng = parseFloat(form.lng);
-    if (!form.name.trim() || Number.isNaN(lat) || Number.isNaN(lng) || form.tiers.length === 0) return;
-    const tiers = form.tiers.map((t) => ({ maxKm: Number(t.maxKm), fee: Number(t.fee) || 0 })).sort((a, b) => a.maxKm - b.maxKm);
-    const next = [...locations, { id: uid("loc_"), name: form.name.trim(), lat, lng, tiers, active: true }];
-    const result = save(next);
-    logAudit(`Added service area "${form.name.trim()}" with ${tiers.length} distance tier(s), up to ${tiers[tiers.length - 1].maxKm} km`);
-    setForm({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
-    return result;
-  };
-  const updateLoc = (id, patch) => save(locations.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const removeLoc = (id) => save(locations.filter((l) => l.id !== id));
-
-  const updateLocTier = (locId, tierIdx, patch) => {
-    return save(locations.map((l) => {
-      if (l.id !== locId) return l;
-      const tiers = getTiers(l).map((t, i) => (i === tierIdx ? { ...t, ...patch } : t));
-      return { ...l, tiers, radiusKm: undefined, deliveryFee: undefined };
-    }));
-  };
-  const addLocTier = (locId) => {
-    return save(locations.map((l) => {
-      if (l.id !== locId) return l;
-      const tiers = getTiers(l);
-      const lastMax = tiers.length ? tiers[tiers.length - 1].maxKm : 0;
-      return { ...l, tiers: [...tiers, { maxKm: lastMax + 2, fee: 0 }], radiusKm: undefined, deliveryFee: undefined };
-    }));
-  };
-  const removeLocTier = (locId, tierIdx) => {
-    return save(locations.map((l) => {
-      if (l.id !== locId) return l;
-      const tiers = getTiers(l).filter((_, i) => i !== tierIdx);
-      return { ...l, tiers: tiers.length ? tiers : getTiers(l), radiusKm: undefined, deliveryFee: undefined };
-    }));
-  };
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="Delivery areas" sub="Only customers within a service area's outer distance can place an order. Add multiple distance tiers to charge different fees at different ranges. Leave this list empty to deliver anywhere for free." />
-      {locations.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-          {locations.map((loc) => {
-            const tiers = getTiers(loc);
-            return (
-              <Card key={loc.id}>
-                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "flex-start" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <MapPin size={16} color="var(--leaf)" />
-                    <div>
-                      <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>{loc.name}</div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><input type="checkbox" checked={loc.active} onChange={(e) => updateLoc(loc.id, { active: e.target.checked })} /> Active</label>
-                    <button onClick={() => removeLoc(loc.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 }}><Trash2 size={16} /></button>
-                  </div>
-                </div>
-                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)" }}>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", marginBottom: 8 }}>Distance tiers</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {tiers.map((t, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 13, color: "var(--muted)" }}>{i === 0 ? "0" : tiers[i - 1].maxKm} –</span>
-                        <input type="number" step="0.5" style={{ ...inputStyle, width: 70 }} value={t.maxKm} onChange={(e) => updateLocTier(loc.id, i, { maxKm: Number(e.target.value) })} />
-                        <span style={{ fontSize: 13, color: "var(--muted)" }}>km →</span>
-                        <input type="number" step="1" style={{ ...inputStyle, width: 90 }} value={t.fee} onChange={(e) => updateLocTier(loc.id, i, { fee: Number(e.target.value) })} />
-                        <span style={{ fontSize: 13, color: "var(--muted)" }}>fee</span>
-                        {tiers.length > 1 && <button onClick={() => removeLocTier(loc.id, i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)" }}><Trash2 size={14} /></button>}
-                      </div>
-                    ))}
-                  </div>
-                  <Btn small variant="ghost" style={{ marginTop: 10 }} onClick={() => addLocTier(loc.id)}><Plus size={13} /> Add distance tier</Btn>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-      <Card style={{ maxWidth: 480 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 }}>Add a service area</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Field label="Name"><input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Main kitchen" /></Field>
-          <div className="form-grid-2">
-            <Field label="Latitude"><input style={inputStyle} value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} placeholder="12.9716" /></Field>
-            <Field label="Longitude"><input style={inputStyle} value={form.lng} onChange={(e) => setForm({ ...form, lng: e.target.value })} placeholder="77.5946" /></Field>
-          </div>
-          <div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 8 }}>Distance tiers</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {form.tiers.map((t, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, color: "var(--muted)" }}>{i === 0 ? "0" : form.tiers[i - 1].maxKm} –</span>
-                  <input type="number" step="0.5" style={{ ...inputStyle, width: 70 }} value={t.maxKm} onChange={(e) => updateFormTier(i, { maxKm: Number(e.target.value) })} />
-                  <span style={{ fontSize: 13, color: "var(--muted)" }}>km →</span>
-                  <input type="number" step="1" style={{ ...inputStyle, width: 90 }} value={t.fee} onChange={(e) => updateFormTier(i, { fee: Number(e.target.value) })} />
-                  <span style={{ fontSize: 13, color: "var(--muted)" }}>fee</span>
-                  {form.tiers.length > 1 && <button onClick={() => removeFormTier(i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)" }}><Trash2 size={14} /></button>}
-                </div>
-              ))}
-            </div>
-            <Btn small variant="ghost" style={{ marginTop: 10 }} onClick={addFormTier}><Plus size={13} /> Add distance tier</Btn>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          <Btn small variant="ghost" onClick={useDeviceLocation} disabled={geoBusy}><Navigation size={13} /> {geoBusy ? "Locating…" : "Use this device's location"}</Btn>
-          <Btn small onClick={addLocation}><Plus size={14} /> Add area</Btn>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Schedule (bulk view/edit of open slots & capacity across upcoming days)
-   ========================================================================= */
-
-function AdminSchedule({ config, orders, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
-  const days = Array.from({ length: 21 }, (_, i) => addDays(todayStr(), i));
-
-  const setCapacity = async (date, key, capacity) => {
-    if (Number.isNaN(capacity) || capacity < 0) return;
-    const next = [...slotOverrides.filter((o) => !(o.date === date && o.session === key)), { date, session: key, capacity }];
-    setSlotOverrides(next);
-    await persist(K.slotOverrides, next);
-    logAudit(`Set ${config.sessions[key].label} capacity on ${date} to ${capacity}`);
-  };
-  const toggleCancelled = async (date, key, isCancelled) => {
-    const next = isCancelled
-      ? cancelledSlots.filter((c) => !(c.date === date && c.session === key))
-      : [...cancelledSlots, { date, session: key }];
-    setCancelledSlots(next);
-    await persist(K.cancelledSlots, next);
-    logAudit(`${isCancelled ? "Reinstated" : "Cancelled"} the ${config.sessions[key].label} serving on ${date}`);
-  };
-  const toggleForced = async (date, key, isForced) => {
-    const next = isForced
-      ? forceOpenSlots.filter((f) => !(f.date === date && f.session === key))
-      : [...forceOpenSlots, { date, session: key }];
-    setForceOpenSlots(next);
-    await persist(K.forceOpenSlots, next);
-    logAudit(`${isForced ? "Reverted" : "Manually opened"} the ${config.sessions[key].label} serving on ${date}${isForced ? " to scheduled hours" : ""}`);
-  };
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="Schedule" sub="An overview of the next 21 days. Open or close a specific serving, or set its capacity, without picking one date at a time." />
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 640 }}>
-            <thead>
-              <tr style={{ background: "var(--surface-muted)", textAlign: "left" }}>
-                <th style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>Date</th>
-                {["morning", "evening"].map((key) => (
-                  <th key={key} style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>{config.sessions[key].label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {days.map((date) => (
-                <tr key={date} style={{ borderTop: "1px solid var(--ring)" }}>
-                  <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 12.5, whiteSpace: "nowrap" }}>{fmtDateLabel(date)}</td>
-                  {["morning", "evening"].map((key) => {
-                    const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
-                    const capacity = resolveCapacity(date, key, config, slotOverrides);
-                    const isOverridden = slotOverrides.some((o) => o.date === date && o.session === key);
-                    const isCancelled = cancelledSlots.some((c) => c.date === date && c.session === key);
-                    const isForced = forceOpenSlots.some((f) => f.date === date && f.session === key);
-                    const count = slotCount(date, key, orders);
-                    return (
-                      <td key={key} style={{ padding: "10px 14px" }}>
-                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-                          <Pill tone={STATE_STYLE[st].tone}>{STATE_STYLE[st].label}</Pill>
-                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>{count} booked</span>
-                          <input
-                            type="number" min={0} style={{ ...inputStyle, width: 62, padding: "5px 7px" }}
-                            value={capacity} onChange={(e) => setCapacity(date, key, Number(e.target.value))}
-                            title={isOverridden ? "Custom capacity for this date" : "Default capacity"}
-                          />
-                          <button onClick={() => toggleCancelled(date, key, isCancelled)} className="stepper-btn" title={isCancelled ? "Reinstate this serving" : "Cancel this serving"} style={{ color: isCancelled ? "var(--leaf)" : "var(--clay)" }}>
-                            {isCancelled ? <RefreshCw size={13} /> : <Ban size={13} />}
-                          </button>
-                          {!isCancelled && (
-                            <button onClick={() => toggleForced(date, key, isForced)} className="stepper-btn" title={isForced ? "Revert to scheduled hours" : "Force this slot open"} style={{ color: isForced ? "var(--muted)" : "var(--turmeric)" }}>
-                              {isForced ? <Clock size={13} /> : <Unlock size={13} />}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      <p style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 10, maxWidth: 620 }}>
-        Every change here saves instantly. The capacity box shows the default unless you've set a custom number for that date; to reset a date back to the default, use the single-date picker in Settings under "Future dates &amp; slots".
-      </p>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Payments (QR code upload)
-   ========================================================================= */
-
-function AdminPayments({ qrCode, setQrCode, config, setConfig, logAudit }) {
-  const fileRef = useRef(null);
-  const [warning, setWarning] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const onFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      if (dataUrl.length > 2_000_000) {
-        setWarning("That file is too large for a QR code (a real QR image is almost always well under 200KB). This is very likely a photo rather than the QR itself, and a file this size can make the upload time out entirely rather than fail with a clear error. Use the QR image exported directly from your payment app (UPI apps like GPay/PhonePe/Paytm all have a \"save QR\" or \"download QR\" option) instead of a photo of it.");
-        if (fileRef.current) fileRef.current.value = "";
-        return;
-      }
-      setSaving(true);
-      setQrCode(dataUrl);
-      try {
-        await persist(K.qrCode, dataUrl);
-        // Verify it actually landed, rather than trusting the write blindly --
-        // this is exactly the class of failure that made QR codes appear to
-        // vanish on refresh.
-        const check = await window.storage.get(K.qrCode, true);
-        const saved = JSON.parse(check.value);
-        if (saved !== dataUrl) {
-          setWarning("The upload saved but didn't come back the same when checked — try again, or use a smaller image.");
-        } else {
-          setWarning("");
-          logAudit("Uploaded a new payment QR code");
-        }
-      } catch (err) {
-        const msg = String(err?.message || err || "");
-        if (err?.name === "QuotaExceededError" || /quota/i.test(msg)) {
-          setWarning("This browser's own storage is full — that image is likely too large for it (browsers cap local storage at only a few MB total, shared across everything this app has saved). Try a smaller, more compressed QR image (a plain PNG rather than a full-resolution photo), or connect a shared backend like Google Sheets, which isn't limited this way.");
-        } else if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-          setWarning("The request to the storage backend never got a response — most likely it timed out while writing (a large image split across many rows can take Apps Script too long to finish in one request). Try a smaller QR image, or if you've recently changed the backend code, make sure it's deployed as a new version (Deploy → Manage deployments → edit → New version).");
-        } else if (/non-json response|json|unexpected token/i.test(msg)) {
-          setWarning(`The storage backend didn't return a normal response — this usually means the Apps Script deployment needs a new version (Deploy → Manage deployments → edit → New version), or its access setting isn't "Anyone." Here's exactly what came back: ${msg}`);
-        } else {
-          setWarning(`Couldn't save the QR code${msg ? ` (${msg})` : ""}. Try again, or check the browser's developer console for the exact error.`);
-        }
-      }
-      setSaving(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeQr = async () => { setQrCode(""); await persist(K.qrCode, ""); logAudit("Removed the payment QR code"); };
-  const toggleCod = async () => {
-    const next = { ...config, codEnabled: !config.codEnabled };
-    setConfig(next);
-    await persist(K.config, next);
-    logAudit(next.codEnabled ? "Enabled Cash on Delivery" : "Disabled Cash on Delivery");
-  };
-  const toggleAutoPrint = async () => {
-    const next = { ...config, autoPrintOnConfirm: !config.autoPrintOnConfirm };
-    setConfig(next);
-    await persist(K.config, next);
-    logAudit(next.autoPrintOnConfirm ? "Enabled auto-print on confirm" : "Disabled auto-print on confirm");
-  };
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="Payments" sub="Set up how customers pay. If neither a QR code nor Cash on Delivery is enabled, customers can't place an order at all." />
-
-      <Card style={{ marginBottom: 16, maxWidth: 420 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Cash on Delivery</div>
-          <Pill tone={config.codEnabled ? "good" : "bad"}>{config.codEnabled ? "Enabled" : "Disabled"}</Pill>
-        </div>
-        <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>
-          When enabled, customers can choose to pay in cash at delivery instead of scanning the QR code. These orders skip the "awaiting payment" step and go straight to Confirmed, since there's nothing to verify upfront.
-        </p>
-        <Btn small variant={config.codEnabled ? "danger" : "accent"} onClick={toggleCod}>
-          {config.codEnabled ? "Disable Cash on Delivery" : "Enable Cash on Delivery"}
-        </Btn>
-      </Card>
-
-      <Card style={{ marginBottom: 16, maxWidth: 420 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Auto-print on confirm</div>
-          <Pill tone={config.autoPrintOnConfirm ? "good" : "bad"}>{config.autoPrintOnConfirm ? "Enabled" : "Disabled"}</Pill>
-        </div>
-        <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>
-          When enabled, confirming an order automatically opens the print dialog with that order's invoice ready to go. One honest limitation: browsers don't allow a webpage to silently send a print job to a printer without a person confirming it -- there's no way around that, by design. This gets you as close as possible: the dialog opens itself, but you'll still need to click "Print" in it each time.
-        </p>
-        <Btn small variant={config.autoPrintOnConfirm ? "danger" : "accent"} onClick={toggleAutoPrint}>
-          {config.autoPrintOnConfirm ? "Disable auto-print" : "Enable auto-print"}
-        </Btn>
-      </Card>
-
-      <Card style={{ maxWidth: 420 }}>
-        {qrCode ? (
-          <div style={{ textAlign: "center" }}>
-            <img src={qrCode} alt="Current payment QR" style={{ width: "100%", maxWidth: 240, borderRadius: 16, border: "1px solid var(--ring)", marginBottom: 14 }} />
-            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-              <Btn small variant="ghost" onClick={() => fileRef.current?.click()} disabled={saving}><Upload size={13} /> Replace</Btn>
-              <Btn small variant="danger" onClick={removeQr} disabled={saving}><Trash2 size={13} /> Remove</Btn>
-            </div>
-          </div>
-        ) : (
-          <div style={{ textAlign: "center", padding: "20px 0" }}>
-            <QrCode size={40} color="var(--muted)" style={{ marginBottom: 10 }} />
-            <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>No QR code uploaded yet. Customers can&apos;t place an order until one is added here.</p>
-            <Btn onClick={() => fileRef.current?.click()} disabled={saving}><Upload size={15} /> {saving ? "Saving…" : "Upload QR code"}</Btn>
-          </div>
-        )}
-        <input ref={fileRef} type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
-        {warning && <p style={{ fontSize: 12, color: "var(--clay)", marginTop: 10 }}>{warning}</p>}
-      </Card>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: FAQ
-   ========================================================================= */
-
-function AdminFAQ({ faqs, setFaqs, logAudit }) {
-  const save = async (next) => { setFaqs(next); await persist(K.faqs, next); };
-  const update = (id, patch) => save(faqs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
-  const remove = (id) => { const r = save(faqs.filter((f) => f.id !== id)); logAudit("Removed an FAQ entry"); return r; };
-  const add = () => save([...faqs, { id: uid("faq_"), q: "", a: "" }]);
-
-  return (
-    <div>
-      <SectionTitle eyebrow="Admin" title="FAQ" sub="These power the chat helper customers see on the ordering screens — it matches their question against these entries." />
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {faqs.map((f) => (
-          <Card key={f.id}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <Field label="Question"><input style={inputStyle} value={f.q} onChange={(e) => update(f.id, { q: e.target.value })} placeholder="How do I...?" /></Field>
-              <Field label="Answer"><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={f.a} onChange={(e) => update(f.id, { a: e.target.value })} placeholder="Answer shown to customers" /></Field>
-            </div>
-            <Btn small variant="danger" style={{ marginTop: 10 }} onClick={() => remove(f.id)}><Trash2 size={13} /> Remove</Btn>
-          </Card>
-        ))}
-      </div>
-      <Btn onClick={add} style={{ marginTop: 14 }}><Plus size={15} /> Add a question</Btn>
-    </div>
-  );
-}
-
-/* ============================================================================
-   ADMIN: Gallery moderation
-   ========================================================================= */
-
-function AdminGallery({ gallery, setGallery, config, setConfig, logAudit }) {
-  const [viewingPhoto, setViewingPhoto] = useState(null);
-  const save = async (next) => { setGallery(next); await persist(K.gallery, next); };
-  const pending = gallery.filter((p) => p.status === "pending").sort((a, b) => a.createdAt - b.createdAt);
-  const reviewed = gallery.filter((p) => p.status !== "pending").sort((a, b) => b.createdAt - a.createdAt);
-
-  const approve = (p) => { const r = save(gallery.map((g) => (g.id === p.id ? { ...g, status: "approved", reviewedAt: Date.now() } : g))); logAudit(`Approved a gallery photo from ${p.customerName}`); return r; };
-  const reject = (p) => { const r = save(gallery.map((g) => (g.id === p.id ? { ...g, status: "rejected", reviewedAt: Date.now() } : g))); logAudit(`Rejected a gallery photo from ${p.customerName}`); return r; };
-  const remove = (p) => { const r = save(gallery.filter((g) => g.id !== p.id)); logAudit(`Deleted a gallery photo from ${p.customerName}`); return r; };
-
-  const toggleUploads = async () => {
-    const next = { ...config, galleryUploadEnabled: !config.galleryUploadEnabled };
-    setConfig(next);
-    await persist(K.config, next);
-    logAudit(next.galleryUploadEnabled ? "Enabled customer gallery uploads" : "Disabled customer gallery uploads");
-  };
-  const updateFullMessage = async (msg) => {
-    const next = { ...config, galleryFullMessage: msg };
-    setConfig(next);
-    await persist(K.config, next);
-  };
-
-  return (
-    <div>
-      {viewingPhoto && <PhotoLightbox photo={viewingPhoto} onClose={() => setViewingPhoto(null)} />}
-      <SectionTitle eyebrow="Admin" title="Gallery" sub="Review photos customers share before they go public. Nothing appears in the customer-facing gallery until you approve it here." />
-
-      <Card style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Customer uploads</div>
-          <Pill tone={config.galleryUploadEnabled === false ? "bad" : "good"}>{config.galleryUploadEnabled === false ? "Disabled" : "Enabled"}</Pill>
-        </div>
-        <Btn small variant={config.galleryUploadEnabled === false ? "accent" : "danger"} onClick={toggleUploads}>
-          {config.galleryUploadEnabled === false ? "Enable customer uploads" : "Disable customer uploads"}
-        </Btn>
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)" }}>
-          <Field label="Message shown to customers when uploads are disabled">
-            <input style={inputStyle} defaultValue={config.galleryFullMessage} onBlur={(e) => updateFullMessage(e.target.value)} placeholder="Our gallery is full. Mail us your pet photos to get featured on the gallery." />
-          </Field>
-        </div>
-      </Card>
+      {viewingImages && <CommunityImageLightbox images={viewingImages} startIndex={0} onClose={() => setViewingImages(null)} />}
+      <SectionTitle eyebrow="Admin" title="Community" sub="Review posts customers share before they go public. Nothing appears in Community until you approve it here." />
 
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>Pending review ({pending.length})</div>
       {pending.length === 0 ? (
@@ -3927,17 +2858,12 @@ function AdminGallery({ gallery, setGallery, config, setConfig, logAudit }) {
       ) : (
         <div className="responsive-grid" style={{ marginBottom: 28 }}>
           {pending.map((p) => (
-            <Card key={p.id} style={{ padding: 0, overflow: "hidden" }}>
-              <img src={p.imageDataUrl} alt="" style={{ width: "100%", display: "block", cursor: "pointer" }} onClick={() => setViewingPhoto(p)} />
-              <div style={{ padding: 12 }}>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 4 }}>{p.customerName}{p.dogName ? ` · ${p.dogName}` : ""}</div>
-                {p.description && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10 }}>{p.description}</div>}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <Btn small variant="accent" onClick={() => approve(p)}><Check size={13} /> Approve</Btn>
-                  <Btn small variant="danger" onClick={() => reject(p)}><Ban size={13} /> Reject</Btn>
-                </div>
+            <PostCard key={p.id} p={p} actions={
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Btn small variant="accent" onClick={() => approve(p)}><Check size={13} /> Approve</Btn>
+                <Btn small variant="danger" onClick={() => reject(p)}><Ban size={13} /> Reject</Btn>
               </div>
-            </Card>
+            } />
           ))}
         </div>
       )}
@@ -3948,18 +2874,44 @@ function AdminGallery({ gallery, setGallery, config, setConfig, logAudit }) {
       ) : (
         <div className="responsive-grid">
           {reviewed.map((p) => (
-            <Card key={p.id} style={{ padding: 0, overflow: "hidden" }}>
-              <img src={p.imageDataUrl} alt="" style={{ width: "100%", display: "block", cursor: "pointer" }} onClick={() => setViewingPhoto(p)} />
-              <div style={{ padding: 12 }}>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 4 }}>{p.customerName}{p.dogName ? ` · ${p.dogName}` : ""}</div>
-                {p.description && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>{p.description}</div>}
+            <PostCard key={p.id} p={p} actions={
+              <>
                 <Pill tone={p.status === "approved" ? "good" : "bad"}>{p.status === "approved" ? "Published" : "Rejected"}</Pill>
                 <div style={{ marginTop: 8 }}><Btn small variant="ghost" onClick={() => remove(p)}><Trash2 size={13} /> Delete</Btn></div>
-              </div>
-            </Card>
+              </>
+            } />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AdminCommunityTopics({ communityTopics, setCommunityTopics, logAudit }) {
+  const save = async (next) => { setCommunityTopics(next); await persist(K.communityTopics, next); };
+  const add = () => save([...communityTopics, { id: uid("topic_"), name: "", active: true }]);
+  const updateName = (id, name) => setCommunityTopics(communityTopics.map((t) => (t.id === id ? { ...t, name } : t)));
+  const commit = () => save(communityTopics);
+  const toggleActive = (id) => { const next = communityTopics.map((t) => (t.id === id ? { ...t, active: !t.active } : t)); save(next); logAudit("Updated a Community topic's active state"); };
+  const remove = (id) => { save(communityTopics.filter((t) => t.id !== id)); logAudit("Removed a Community topic"); };
+
+  return (
+    <div>
+      <SectionTitle eyebrow="Admin" title="Community topics" sub="Manage the topic list customers choose from when writing a post. Inactive topics stay attached to existing posts but won't be offered for new ones." />
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {communityTopics.map((t) => (
+            <div key={t.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input style={{ ...inputStyle, flex: 1, opacity: t.active === false ? 0.5 : 1 }} value={t.name} onChange={(e) => updateName(t.id, e.target.value)} onBlur={commit} />
+              <button onClick={() => toggleActive(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: t.active === false ? "var(--muted)" : "var(--leaf)", padding: 6 }} title={t.active === false ? "Reactivate" : "Deactivate"}>
+                {t.active === false ? <Unlock size={14} /> : <Check size={14} />}
+              </button>
+              <button onClick={() => remove(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 }}><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+        <Btn small variant="ghost" style={{ marginTop: 12 }} onClick={add}><Plus size={13} /> Add topic</Btn>
+      </Card>
     </div>
   );
 }
@@ -3992,7 +2944,7 @@ function toCsv(rows, columns) {
   return header + "\n" + body;
 }
 
-function AdminData({ orders, setOrders, dogs, setDogs, gallery, setGallery, allAddresses, setAllAddresses, audit, logAudit }) {
+function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, allAddresses, setAllAddresses, audit, logAudit }) {
   const [customers, setCustomers] = useState(null);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -4009,7 +2961,9 @@ function AdminData({ orders, setOrders, dogs, setDogs, gallery, setGallery, allA
     setOrders([]); await persist(K.orders, []);
     await persist(K.orderItems, []);
     setDogs([]); await persist(K.dogs, []);
-    setGallery([]); await persist(K.gallery, []);
+    setCommunityPosts([]); await persist(K.communityPosts, []);
+    setCommunityComments([]); await persist(K.communityComments, []);
+    setCommunityLikes([]); await persist(K.communityLikes, []);
     setAllAddresses([]); await persist(K.addresses, []);
 
     // Delete every customer account too -- this is what "customer details"
@@ -4020,7 +2974,7 @@ function AdminData({ orders, setOrders, dogs, setDogs, gallery, setGallery, allA
       await Promise.all((list?.keys || []).map((k) => window.storage.delete(k, true)));
     } catch {}
 
-    logAudit("Admin cleared ALL order and customer data (orders, order items, dogs, addresses, gallery, and every customer account).");
+    logAudit("Admin cleared ALL order and customer data (orders, order items, dogs, addresses, Community posts/comments/likes, and every customer account).");
     setCustomers([]);
     setClearing(false);
     setClearDone(true);
@@ -4239,7 +3193,7 @@ function AdminData({ orders, setOrders, dogs, setDogs, gallery, setGallery, allA
         ) : (
           <>
             <p style={{ fontSize: 13.5, marginBottom: 12 }}>
-              Permanently deletes every order, order line item, dog, saved address, gallery photo, and customer account.
+              Permanently deletes every order, order line item, dog, saved address, Community post/comment/like, and customer account.
               Ingredients, delivery areas, settings, and the audit log are not affected. <b>This cannot be undone</b> --
               use "Export full backup" above first if there's any chance you'll want this data back.
             </p>
@@ -4373,7 +3327,7 @@ const CUSTOMER_TABS = [
   { id: "dogs", label: "My Dogs", icon: PawPrint },
   { id: "order", label: "Order Food", icon: Dog },
   { id: "myorders", label: "My Orders", icon: ClipboardList },
-  { id: "gallery", label: "Gallery", icon: ImageIcon },
+  { id: "community", label: "Community", icon: Users },
   { id: "contact", label: "Contact", icon: Phone },
   { id: "profile", label: "Profile", icon: CircleUser },
 ];
@@ -4386,7 +3340,8 @@ const ADMIN_TABS = [
   { id: "schedule", label: "Schedule", icon: CalendarDays },
   { id: "payments", label: "Payments", icon: QrCode },
   { id: "faq", label: "FAQ", icon: HelpCircle },
-  { id: "gallery", label: "Gallery", icon: ImageIcon },
+  { id: "community", label: "Community", icon: Users },
+  { id: "communityTopics", label: "Topics", icon: Tag },
   { id: "data", label: "Data", icon: Database },
   { id: "settings", label: "Settings", icon: Clock },
   { id: "audit", label: "Audit Log", icon: History },
@@ -4403,9 +3358,11 @@ function App() {
   const [myPhone, setMyPhone] = useState("");
   const [myPhoneLoaded, setMyPhoneLoaded] = useState(false);
   const [welcome, setWelcome] = useState(null); // { message, sub } | null
-  const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : "order"));
+  const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : urlParams.get("post") ? "community" : "order"));
   const [pendingDogId, setPendingDogId] = useState(null);
   const [pendingOrderFilter, setPendingOrderFilter] = useState(null);
+  const [pendingCommunityPostId, setPendingCommunityPostId] = useState(() => urlParams.get("post") || null);
+  const [pendingCommunityBreedFilter, setPendingCommunityBreedFilter] = useState(null);
 
   const [config, setConfig] = useState(SEED_CONFIG);
   const [ingredients, setIngredients] = useState(SEED_INGREDIENTS);
@@ -4417,7 +3374,10 @@ function App() {
   const [forceOpenSlots, setForceOpenSlots] = useState([]);
   const [slotOverrides, setSlotOverrides] = useState([]);
   const [locations, setLocations] = useState(SEED_LOCATIONS);
-  const [gallery, setGallery] = useState([]);
+  const [communityTopics, setCommunityTopics] = useState([]);
+  const [communityPosts, setCommunityPosts] = useState([]);
+  const [communityComments, setCommunityComments] = useState([]);
+  const [communityLikes, setCommunityLikes] = useState([]);
   const [addresses, setAddresses] = useState([]);
   const [qrCode, setQrCode] = useState("");
   const [faqs, setFaqs] = useState(SEED_FAQS);
@@ -4465,7 +3425,8 @@ function App() {
   const setForceOpenSlotsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setForceOpenSlots(v); }, []);
   const setSlotOverridesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setSlotOverrides(v); }, []);
   const setLocationsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setLocations(v); }, []);
-  const setGalleryT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setGallery(v); }, []);
+  const setCommunityPostsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setCommunityPosts(v); }, []);
+  const setCommunityTopicsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setCommunityTopics(v); }, []);
   const setOrdersT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setOrders(v); }, []);
   const setDogsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setDogs(v); }, []);
   const setAddressesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setAddresses(v); }, []);
@@ -4515,15 +3476,17 @@ function App() {
       } catch {
         if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches) setTheme("dark");
       }
-      const [c, ing, br, en, dg, ord, cs, fo, so, loc, qr, fq, au, gal, addr] = await loadManyOrSeed([
+      const [c, ing, br, en, dg, ord, cs, fo, so, loc, qr, fq, au, addr, ctopics, cposts, ccomments, clikes] = await loadManyOrSeed([
         [K.config, SEED_CONFIG], [K.ingredients, SEED_INGREDIENTS], [K.breeds, SEED_BREEDS], [K.engine, SEED_ENGINE],
         [K.dogs, []], [K.orders, []], [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
-        [K.locations, SEED_LOCATIONS], [K.qrCode, ""], [K.faqs, SEED_FAQS], [K.audit, []], [K.gallery, []], [K.addresses, []],
+        [K.locations, SEED_LOCATIONS], [K.qrCode, ""], [K.faqs, SEED_FAQS], [K.audit, []], [K.addresses, []],
+        [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []],
       ]);
       setConfig(mergeConfig(c));
       setIngredients(ing); setBreeds(br); setEngine(en);
       setDogs(dg); setOrders(ord); setCancelledSlots(cs); setForceOpenSlots(fo); setSlotOverrides(so);
-      setLocations(loc); setQrCode(qr); setFaqs(fq && fq.length ? fq : SEED_FAQS); setAudit(au); setGallery(gal); setAddresses(addr);
+      setLocations(loc); setQrCode(qr); setFaqs(fq && fq.length ? fq : SEED_FAQS); setAudit(au); setAddresses(addr);
+      setCommunityTopics(ctopics && ctopics.length ? ctopics : SEED_COMMUNITY_TOPICS); setCommunityPosts(cposts); setCommunityComments(ccomments); setCommunityLikes(clikes);
       knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
       setLoading(false);
 
@@ -4553,10 +3516,11 @@ function App() {
   // is now fixed at the source -- so it's safe to sync more here.
   const refresh = useCallback(async () => {
     try {
-      const [ord, dg, cfgRaw, cs, fo, so, loc, gal, addr] = await loadManyOrSeed([
+      const [ord, dg, cfgRaw, cs, fo, so, loc, addr, ctopics, cposts, ccomments, clikes] = await loadManyOrSeed([
         [K.orders, []], [K.dogs, []], [K.config, SEED_CONFIG],
         [K.cancelledSlots, []], [K.forceOpenSlots, []], [K.slotOverrides, []],
-        [K.locations, SEED_LOCATIONS], [K.gallery, []], [K.addresses, []],
+        [K.locations, SEED_LOCATIONS], [K.addresses, []],
+        [K.communityTopics, SEED_COMMUNITY_TOPICS], [K.communityPosts, []], [K.communityComments, []], [K.communityLikes, []],
       ]);
 
       if (knownOrderIdsRef.current) {
@@ -4587,8 +3551,11 @@ function App() {
         setForceOpenSlots((prev) => (JSON.stringify(prev) === JSON.stringify(fo) ? prev : fo));
         setSlotOverrides((prev) => (JSON.stringify(prev) === JSON.stringify(so) ? prev : so));
         setLocations((prev) => (JSON.stringify(prev) === JSON.stringify(loc) ? prev : loc));
-        setGallery((prev) => (JSON.stringify(prev) === JSON.stringify(gal) ? prev : gal));
         setAddresses((prev) => (JSON.stringify(prev) === JSON.stringify(addr) ? prev : addr));
+        setCommunityTopics((prev) => (JSON.stringify(prev) === JSON.stringify(ctopics) ? prev : ctopics));
+        setCommunityPosts((prev) => (JSON.stringify(prev) === JSON.stringify(cposts) ? prev : cposts));
+        setCommunityComments((prev) => (JSON.stringify(prev) === JSON.stringify(ccomments) ? prev : ccomments));
+        setCommunityLikes((prev) => (JSON.stringify(prev) === JSON.stringify(clikes) ? prev : clikes));
       }
     } catch {}
   }, []);
@@ -4784,7 +3751,7 @@ function App() {
                 })}
               </nav>
               <nav className="app-nav app-nav-secondary">
-                {CUSTOMER_TABS.filter((t) => ["gallery", "contact", "profile"].includes(t.id)).map((t) => {
+                {CUSTOMER_TABS.filter((t) => ["community", "contact", "profile"].includes(t.id)).map((t) => {
                   const Icon = t.icon;
                   const active = tab === t.id;
                   return <button key={t.id} onClick={() => setTab(t.id)} className={"nav-btn" + (active ? " active" : "")}><Icon size={15} /> {t.label}</button>;
@@ -4802,7 +3769,7 @@ function App() {
           )}
         </div>
         <main className="app-main">
-          {role === "customer" && tab === "dogs" && <DogsView dogs={dogs} setDogs={setDogs} breeds={breeds} myName={myName} myCustomerId={myCustomerId} allAddresses={addresses} setAllAddresses={setAddresses} onContinue={goToOrderWithDog} />}
+          {role === "customer" && tab === "dogs" && <DogsView dogs={dogs} setDogs={setDogs} breeds={breeds} myName={myName} myCustomerId={myCustomerId} allAddresses={addresses} setAllAddresses={setAddresses} onContinue={goToOrderWithDog} onReadAboutBreed={(breed) => { setPendingCommunityBreedFilter(breed); setTab("community"); }} />}
           {role === "customer" && tab === "order" && (
             <OrderFoodView
               myName={myName} myCustomerId={myCustomerId} myPhone={myPhone} myPhoneLoaded={myPhoneLoaded} onMyPhoneChange={setMyPhone}
@@ -4817,11 +3784,21 @@ function App() {
           {role === "customer" && tab === "profile" && (
             <ProfileView
               myName={myName} setMyName={setMyName} myCustomerId={myCustomerId}
-              dogs={dogs} setDogs={setDogs} orders={orders} setOrders={setOrders} gallery={gallery} setGallery={setGallery}
+              dogs={dogs} setDogs={setDogs} orders={orders} setOrders={setOrders} communityPosts={communityPosts} setCommunityPosts={setCommunityPosts}
               allAddresses={addresses} setAllAddresses={setAddresses} onMyPhoneChange={setMyPhone} onGoToDogs={() => setTab("dogs")}
             />
           )}
-          {role === "customer" && tab === "gallery" && <GalleryView myName={myName} myCustomerId={myCustomerId} dogs={dogs} gallery={gallery} setGallery={setGallery} config={config} />}
+          {role === "customer" && tab === "community" && (
+            <CommunityView
+              myName={myName} myCustomerId={myCustomerId} dogs={dogs} breeds={breeds} config={config}
+              communityTopics={communityTopics} communityPosts={communityPosts} setCommunityPosts={setCommunityPosts}
+              communityComments={communityComments} setCommunityComments={setCommunityComments}
+              communityLikes={communityLikes} setCommunityLikes={setCommunityLikes}
+              initialPostId={pendingCommunityPostId} onConsumeInitialPost={() => setPendingCommunityPostId(null)}
+              initialBreedFilter={pendingCommunityBreedFilter} onConsumeInitialBreedFilter={() => setPendingCommunityBreedFilter(null)}
+              onOpenAuth={openAuth}
+            />
+          )}
 
           {role === "admin" && tab === "dashboard" && <AdminDashboard config={config} orders={orders} cancelledSlots={cancelledSlots} forceOpenSlots={forceOpenSlots} slotOverrides={slotOverrides} locations={locations} onGoToOrders={goToOrdersFiltered} onRefresh={refresh} />}
           {role === "admin" && tab === "orders" && <AdminOrders orders={orders} setOrders={setOrdersT} config={config} logAudit={logAudit} initialFilter={pendingOrderFilter} onConsumeInitialFilter={() => setPendingOrderFilter(null)} onRefresh={refresh} />}
@@ -4837,8 +3814,9 @@ function App() {
           )}
           {role === "admin" && tab === "payments" && <AdminPayments qrCode={qrCode} setQrCode={setQrCode} config={config} setConfig={setConfigT} logAudit={logAudit} />}
           {role === "admin" && tab === "faq" && <AdminFAQ faqs={faqs} setFaqs={setFaqs} logAudit={logAudit} />}
-          {role === "admin" && tab === "gallery" && <AdminGallery gallery={gallery} setGallery={setGalleryT} config={config} setConfig={setConfigT} logAudit={logAudit} />}
-          {role === "admin" && tab === "data" && <AdminData orders={orders} setOrders={setOrdersT} dogs={dogs} setDogs={setDogsT} gallery={gallery} setGallery={setGalleryT} allAddresses={addresses} setAllAddresses={setAddressesT} audit={audit} logAudit={logAudit} />}
+          {role === "admin" && tab === "community" && <AdminCommunity communityPosts={communityPosts} setCommunityPosts={setCommunityPostsT} logAudit={logAudit} />}
+          {role === "admin" && tab === "communityTopics" && <AdminCommunityTopics communityTopics={communityTopics} setCommunityTopics={setCommunityTopicsT} logAudit={logAudit} />}
+          {role === "admin" && tab === "data" && <AdminData orders={orders} setOrders={setOrdersT} dogs={dogs} setDogs={setDogsT} communityPosts={communityPosts} setCommunityPosts={setCommunityPostsT} communityComments={communityComments} setCommunityComments={setCommunityComments} communityLikes={communityLikes} setCommunityLikes={setCommunityLikes} allAddresses={addresses} setAllAddresses={setAddressesT} audit={audit} logAudit={logAudit} />}
           {role === "admin" && tab === "settings" && <AdminSettings config={config} setConfig={setConfigT} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlotsT} forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlotsT} slotOverrides={slotOverrides} setSlotOverrides={setSlotOverridesT} logAudit={logAudit} />}
           {role === "admin" && tab === "audit" && <AdminAudit audit={audit} />}
         </main>
