@@ -3986,13 +3986,40 @@ function toCsv(rows, columns) {
   return header + "\n" + body;
 }
 
-function AdminData({ orders, dogs, audit, logAudit }) {
+function AdminData({ orders, setOrders, dogs, setDogs, gallery, setGallery, allAddresses, setAllAddresses, audit, logAudit }) {
   const [customers, setCustomers] = useState(null);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [clearDone, setClearDone] = useState(false);
   const fileRef = useRef(null);
+
+  const CLEAR_PHRASE = "DELETE EVERYTHING";
+  const clearAllData = async () => {
+    setClearing(true);
+    setOrders([]); await persist(K.orders, []);
+    await persist(K.orderItems, []);
+    setDogs([]); await persist(K.dogs, []);
+    setGallery([]); await persist(K.gallery, []);
+    setAllAddresses([]); await persist(K.addresses, []);
+
+    // Delete every customer account too -- this is what "customer details"
+    // means concretely, since accounts live as their own keys rather than
+    // a single collection.
+    try {
+      const list = await window.storage.list("dfp:customer:", true);
+      await Promise.all((list?.keys || []).map((k) => window.storage.delete(k, true)));
+    } catch {}
+
+    logAudit("Admin cleared ALL order and customer data (orders, order items, dogs, addresses, gallery, and every customer account).");
+    setCustomers([]);
+    setClearing(false);
+    setClearDone(true);
+    setClearConfirmText("");
+  };
 
   const testConnection = async () => {
     setTesting(true); setTestResult(null);
@@ -4195,6 +4222,35 @@ function AdminData({ orders, dogs, audit, logAudit }) {
         <input ref={fileRef} type="file" accept="application/json" onChange={importAllJson} style={{ display: "none" }} />
         {importMsg && <p style={{ fontSize: 12.5, color: "var(--leaf)", marginTop: 10 }}>{importMsg}</p>}
       </Card>
+
+      <Card style={{ marginTop: 20, background: "var(--tone-bad-bg)", border: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <AlertTriangle size={17} color="var(--clay)" />
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 }}>Danger zone</div>
+        </div>
+        {clearDone ? (
+          <p style={{ fontSize: 14 }}>All order and customer data has been cleared.</p>
+        ) : (
+          <>
+            <p style={{ fontSize: 13.5, marginBottom: 12 }}>
+              Permanently deletes every order, order line item, dog, saved address, gallery photo, and customer account.
+              Ingredients, delivery areas, settings, and the audit log are not affected. <b>This cannot be undone</b> --
+              use "Export full backup" above first if there's any chance you'll want this data back.
+            </p>
+            <Field label={`Type "${CLEAR_PHRASE}" to enable the button below`}>
+              <input style={inputStyle} value={clearConfirmText} onChange={(e) => setClearConfirmText(e.target.value)} placeholder={CLEAR_PHRASE} />
+            </Field>
+            <Btn
+              small variant="danger" style={{ marginTop: 12 }}
+              disabled={clearConfirmText !== CLEAR_PHRASE || clearing}
+              onClick={clearAllData}
+              loadingText="Clearing everything…"
+            >
+              <Trash2 size={13} /> Clear all order & customer data
+            </Btn>
+          </>
+        )}
+      </Card>
     </div>
   );
 }
@@ -4338,6 +4394,7 @@ function App() {
   const resetToken = urlParams.get("resetToken");
   const [myName, setMyName] = useState("");
   const [myCustomerId, setMyCustomerId] = useState("");
+  const [welcome, setWelcome] = useState(null); // { message, sub } | null
   const [tab, setTab] = useState(() => (urlParams.get("view") === "myorders" ? "myorders" : "order"));
   const [pendingDogId, setPendingDogId] = useState(null);
   const [pendingOrderFilter, setPendingOrderFilter] = useState(null);
@@ -4402,6 +4459,8 @@ function App() {
   const setLocationsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setLocations(v); }, []);
   const setGalleryT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setGallery(v); }, []);
   const setOrdersT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setOrders(v); }, []);
+  const setDogsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setDogs(v); }, []);
+  const setAddressesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setAddresses(v); }, []);
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
@@ -4456,6 +4515,18 @@ function App() {
       setLocations(loc); setQrCode(qr); setFaqs(fq && fq.length ? fq : SEED_FAQS); setAudit(au); setGallery(gal); setAddresses(addr);
       knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
       setLoading(false);
+
+      let alreadyVisited = false;
+      try {
+        const visited = await window.storage.get("dfp:hasVisited", false);
+        alreadyVisited = !!visited?.value;
+      } catch {
+        alreadyVisited = false; // not found -- genuinely a first visit
+      }
+      if (!alreadyVisited) {
+        setWelcome({ message: "Welcome", sub: mergeConfig(c).serviceName || "" });
+        window.storage.set("dfp:hasVisited", "true", false).catch(() => {});
+      }
     })();
   }, []);
 
@@ -4579,6 +4650,7 @@ function App() {
         setMyName(data.name);
         window.storage.set("dfp:session", JSON.stringify({ name: data.name }), false).catch(() => {});
         setAuthOpen(false);
+        setWelcome({ message: `Welcome back, ${data.name}!`, sub: "" });
       } else setAuthError("Incorrect password.");
     } catch {
       setAuthError("No account found with that name. Try creating one instead.");
@@ -4609,6 +4681,7 @@ function App() {
     window.storage.set("dfp:session", JSON.stringify({ name }), false).catch(() => {});
     setAuthOpen(false);
     setAuthBusy(false);
+    setWelcome({ message: `Welcome, ${name}!`, sub: "Your account is all set up." });
   };
   const authForgotSubmit = async () => {
     const emailTrim = forgotEmail.trim();
@@ -4678,6 +4751,7 @@ function App() {
           onSwitchMode={switchAuthMode} onCancel={() => setAuthOpen(false)}
         />
       )}
+      {welcome && <WelcomeOverlay message={welcome.message} sub={welcome.sub} onDone={() => setWelcome(null)} />}
       <Header role={role} setRole={setRole} requestAdmin={requestAdmin} adminUnlocked={adminUnlocked} lockAdmin={lockAdmin}
         myName={myName} openAuth={openAuth} signOut={signOut} goToProfile={() => setTab("profile")} config={config} theme={theme} toggleTheme={toggleTheme}
         notifications={notifications} notifOpen={notifOpen} setNotifOpen={setNotifOpen}
@@ -4752,7 +4826,7 @@ function App() {
           {role === "admin" && tab === "payments" && <AdminPayments qrCode={qrCode} setQrCode={setQrCode} config={config} setConfig={setConfigT} logAudit={logAudit} />}
           {role === "admin" && tab === "faq" && <AdminFAQ faqs={faqs} setFaqs={setFaqs} logAudit={logAudit} />}
           {role === "admin" && tab === "gallery" && <AdminGallery gallery={gallery} setGallery={setGalleryT} config={config} setConfig={setConfigT} logAudit={logAudit} />}
-          {role === "admin" && tab === "data" && <AdminData orders={orders} dogs={dogs} audit={audit} logAudit={logAudit} />}
+          {role === "admin" && tab === "data" && <AdminData orders={orders} setOrders={setOrdersT} dogs={dogs} setDogs={setDogsT} gallery={gallery} setGallery={setGalleryT} allAddresses={addresses} setAllAddresses={setAddressesT} audit={audit} logAudit={logAudit} />}
           {role === "admin" && tab === "settings" && <AdminSettings config={config} setConfig={setConfigT} cancelledSlots={cancelledSlots} setCancelledSlots={setCancelledSlotsT} forceOpenSlots={forceOpenSlots} setForceOpenSlots={setForceOpenSlotsT} slotOverrides={slotOverrides} setSlotOverrides={setSlotOverridesT} logAudit={logAudit} />}
           {role === "admin" && tab === "audit" && <AdminAudit audit={audit} />}
         </main>
@@ -4831,6 +4905,34 @@ function Header({ role, requestAdmin, setRole, adminUnlocked, lockAdmin, myName,
         </div>
       </div>
     </header>
+  );
+}
+
+function WelcomeOverlay({ message, sub, onDone }) {
+  const [leaving, setLeaving] = useState(false);
+
+  useEffect(() => {
+    const showFor = setTimeout(() => setLeaving(true), 1400);
+    return () => clearTimeout(showFor);
+  }, []);
+
+  useEffect(() => {
+    if (!leaving) return;
+    const t = setTimeout(onDone, 500); // matches the slide-up transition duration below
+    return () => clearTimeout(t);
+  }, [leaving]);
+
+  return (
+    <div
+      onClick={() => setLeaving(true)}
+      className={"welcome-overlay" + (leaving ? " welcome-overlay-leaving" : "")}
+    >
+      <div className="welcome-overlay-content">
+        <PawPrint size={40} color="#fff" />
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 32, color: "#fff", marginTop: 14 }}>{message}</div>
+        {sub && <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, color: "rgba(255,255,255,0.75)", marginTop: 8 }}>{sub}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -4930,6 +5032,18 @@ function Shell({ children, theme }) {
         .notif-dot { position: absolute; top: -4px; right: -4px; background: var(--clay); color: #fff; font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0 3px; font-family: var(--font-mono); }
         .notif-dropdown { position: absolute; top: 42px; right: 0; width: 300px; max-height: 360px; overflow-y: auto; background: var(--surface); border: 1px solid var(--ring); border-radius: 16px; box-shadow: 0 20px 48px -16px rgba(0,0,0,0.35); z-index: 50; }
         .toast-banner { position: fixed; top: 76px; right: 20px; background: var(--ink); color: var(--btn-primary-fg); padding: 12px 16px; border-radius: 14px; font-size: 13.5px; display: flex; align-items: center; gap: 8px; box-shadow: 0 16px 40px -12px rgba(0,0,0,0.4); z-index: 60; cursor: pointer; max-width: min(320px, calc(100vw - 40px)); }
+        .welcome-overlay {
+          position: fixed; inset: 0; z-index: 200; background: var(--leaf);
+          display: flex; align-items: center; justify-content: center; text-align: center;
+          cursor: pointer; transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+        }
+        .welcome-overlay-leaving { transform: translateY(-100%); }
+        .welcome-overlay-content { animation: authModalEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @media (prefers-reduced-motion: reduce) {
+          .welcome-overlay { transition: opacity 0.3s ease; }
+          .welcome-overlay-leaving { transform: none; opacity: 0; }
+          .welcome-overlay-content { animation: none; }
+        }
         @keyframes authModalEnter {
           from { opacity: 0; transform: translateY(10px) scale(0.98); }
           to { opacity: 1; transform: translateY(0) scale(1); }
