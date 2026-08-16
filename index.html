@@ -5293,8 +5293,32 @@ function App() {
 
 function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin, myName, myPhoto, openAuth, signOut, goToProfile, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs }) {
   const unreadCount = notifications.filter((n) => n.ts > lastReadTs).length;
+  const [scrolledHidden, setScrolledHidden] = useState(false);
+  const lastScrollYRef = useRef(0);
+
+  // Mobile-only: slide the header up out of the way while scrolling down
+  // through a long page, and bring it right back the moment you scroll
+  // up (or return near the top) -- reclaims real screen space on a small
+  // phone without ever making the header hard to get back to.
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY;
+      const delta = y - lastScrollYRef.current;
+      if (y < 80) {
+        setScrolledHidden(false);
+      } else if (delta > 4) {
+        setScrolledHidden(true);
+      } else if (delta < -4) {
+        setScrolledHidden(false);
+      }
+      lastScrollYRef.current = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
-    <header className="app-header">
+    <header className={"app-header" + (scrolledHidden ? " app-header-hidden" : "")}>
       <div className="app-header-inner">
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           {config.logoDataUrl ? (
@@ -5466,7 +5490,7 @@ function Shell({ children, theme }) {
         button { font-family: var(--font-body); }
         input, select, textarea { font-size: 16px; }
 
-        .app-header { position: sticky; top: 0; z-index: 30; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--ring); }
+        .app-header { position: sticky; top: 0; z-index: 30; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--ring); transition: transform 0.25s ease; }
         .app-header-inner { max-width: 1100px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
         .segmented { display: flex; border-radius: 980px; background: var(--surface-muted); padding: 3px; }
         .segmented-btn { border: none; padding: 7px 15px; font-family: var(--font-body); font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; color: var(--ink); border-radius: 980px; display: flex; align-items: center; gap: 5px; }
@@ -5533,6 +5557,7 @@ function Shell({ children, theme }) {
           .welcome-overlay { transition: opacity 0.3s ease; }
           .welcome-overlay-leaving { transform: none; opacity: 0; }
           .welcome-overlay-content { animation: none; }
+          .app-header { transition: none; }
         }
         .loading-spinner {
           width: 34px; height: 34px; border-radius: 50%;
@@ -5552,6 +5577,7 @@ function Shell({ children, theme }) {
         .chat-chip { text-align: left; border: 1px solid var(--ring-strong); background: var(--surface); color: var(--ink); border-radius: 12px; padding: 8px 11px; font-size: 12.5px; cursor: pointer; }
 
         @media (max-width: 780px) {
+          .app-header-hidden { transform: translateY(-100%); }
           .app-header-inner { padding: 11px 16px; }
           .app-brand-tagline { display: none; }
           .app-layout { flex-direction: column; padding: 14px 14px 40px; gap: 14px; }
