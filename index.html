@@ -1697,6 +1697,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
   const [topicFilter, setTopicFilter] = useState("");
   const [breedFilter, setBreedFilter] = useState("");
   const [showMine, setShowMine] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [loginPrompt, setLoginPrompt] = useState(null); // string action label, or null
 
   useEffect(() => {
@@ -1711,11 +1712,13 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
     if (initialBreedFilter) {
       setBreedFilter(initialBreedFilter);
       setView("list");
+      setShowFilters(true);
       onConsumeInitialBreedFilter?.();
     }
   }, [initialBreedFilter]);
 
   const activeTopics = communityTopics.filter((t) => t.active !== false);
+  const communityActiveFilterCount = (topicFilter ? 1 : 0) + (breedFilter ? 1 : 0);
   const approved = communityPosts.filter((p) => p.status === "approved");
   const mine = communityPosts.filter((p) => p.authorId === myCustomerId);
 
@@ -1777,7 +1780,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
     await persist(K.communityPosts, nextPosts);
   };
 
-  const filterByBreed = (breed) => { setSharedPostId(null); setBreedFilter(breed); setShowMine(false); setView("list"); };
+  const filterByBreed = (breed) => { setSharedPostId(null); setBreedFilter(breed); setShowMine(false); setView("list"); setShowFilters(true); };
 
   const deletePost = async (postId) => {
     markLocalEdit?.();
@@ -1813,8 +1816,20 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
         <>
           <div className="community-header">
             <SectionTitle title="Community" sub="Discover real experiences, helpful tips, training advice, and breed-specific knowledge shared by dog owners." />
-            <Btn onClick={startCreate}><Plus size={15} /> Share a post</Btn>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn small variant={communityActiveFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
+                <SlidersHorizontal size={13} /> Filters{communityActiveFilterCount > 0 ? ` (${communityActiveFilterCount})` : ""}
+              </Btn>
+              <Btn onClick={startCreate}><Plus size={15} /> Share a post</Btn>
+            </div>
           </div>
+
+          {myName && !sharedPost && (
+            <div style={{ marginBottom: 14, display: "flex", gap: 8 }}>
+              <button onClick={() => setShowMine(false)} className={"date-chip" + (!showMine ? " active" : "")}>Community</button>
+              <button onClick={() => setShowMine(true)} className={"date-chip" + (showMine ? " active" : "")}>My posts</button>
+            </div>
+          )}
 
           {sharedPost ? (
             <Card style={{ marginBottom: 18, maxWidth: 470, marginLeft: "auto", marginRight: "auto" }}>
@@ -1823,7 +1838,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
                 <button onClick={() => setSharedPostId(null)} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", fontSize: 13.5, textDecoration: "underline" }}>Show all Community posts</button>
               </div>
             </Card>
-          ) : (
+          ) : showFilters && (
             <Card style={{ marginBottom: 18 }}>
               <div className="form-grid-2">
                 <Field label="Topic">
@@ -1840,11 +1855,8 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
                   </select>
                 </Field>
               </div>
-              {myName && (
-                <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                  <button onClick={() => setShowMine(false)} className={"date-chip" + (!showMine ? " active" : "")}>Community</button>
-                  <button onClick={() => setShowMine(true)} className={"date-chip" + (showMine ? " active" : "")}>My posts</button>
-                </div>
+              {communityActiveFilterCount > 0 && (
+                <Btn small variant="ghost" style={{ marginTop: 12 }} onClick={() => { setTopicFilter(""); setBreedFilter(""); }}>Clear filters</Btn>
               )}
             </Card>
           )}
@@ -3201,6 +3213,8 @@ function IngredientsNeededModal({ date, session, orders, config, onClose }) {
 
 function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders, onRefresh }) {
   const [newCustomersToday, setNewCustomersToday] = useState(null);
+  const [totalCustomers, setTotalCustomers] = useState(null);
+  const [totalRevenue, setTotalRevenue] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [dateIdx, setDateIdx] = useState(0);
   const [showIngredientsNeeded, setShowIngredientsNeeded] = useState(false);
@@ -3209,6 +3223,7 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
     (async () => {
       try {
         const list = await window.storage.list("dfp:customer:", true);
+        setTotalCustomers((list?.keys || []).length);
         const today = todayStr();
         let count = 0;
         await Promise.all((list?.keys || []).map(async (k) => {
@@ -3220,6 +3235,23 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
         }));
         setNewCustomersToday(count);
       } catch { setNewCustomersToday(0); }
+    })();
+  }, [orders.length]);
+
+  // All-time revenue needs the FULL order history, not just the "yesterday,
+  // today, upcoming" slice already loaded into app state -- fetched
+  // separately here so it doesn't block the rest of the dashboard from
+  // rendering while it comes in.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get(K.orders, true);
+        const allOrders = JSON.parse(res?.value || "[]");
+        const revenue = allOrders
+          .filter((o) => STATUS_FLOW.includes(o.status))
+          .reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+        setTotalRevenue(revenue);
+      } catch { setTotalRevenue(null); }
     })();
   }, [orders.length]);
 
@@ -3286,6 +3318,18 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
             <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 }}>{s.value}</div>
           </Card>
         ))}
+      </div>
+
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 8 }}>All-time</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 18 }}>
+        <Card style={{ padding: "16px 18px" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Total customers</div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 }}>{totalCustomers === null ? "\u2026" : totalCustomers}</div>
+        </Card>
+        <Card style={{ padding: "16px 18px" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>Total revenue</div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 }}>{totalRevenue === null ? "\u2026" : rupee(totalRevenue)}</div>
+        </Card>
       </div>
 
       <Card
