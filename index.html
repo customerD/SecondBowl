@@ -1816,7 +1816,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
         <>
           <div className="community-header">
             <SectionTitle title="Community" sub="Discover real experiences, helpful tips, training advice, and breed-specific knowledge shared by dog owners." />
-            <div style={{ display: "flex", gap: 8 }}>
+            <div className="community-header-actions" style={{ display: "flex", gap: 8 }}>
               <Btn small variant={communityActiveFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
                 <SlidersHorizontal size={13} /> Filters{communityActiveFilterCount > 0 ? ` (${communityActiveFilterCount})` : ""}
               </Btn>
@@ -5553,7 +5553,7 @@ function Shell({ children, theme }) {
         .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         .form-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 
-        .community-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+        .community-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 16px; }
         .insta-feed { display: flex; flex-direction: column; gap: 24px; max-width: 470px; margin: 0 auto; }
         .insta-post { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; overflow: hidden; cursor: pointer; }
         .insta-post-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
@@ -5575,7 +5575,8 @@ function Shell({ children, theme }) {
           .insta-feed { max-width: 100%; }
           .insta-post { border-radius: 0; border-left: none; border-right: none; }
           .community-header { flex-direction: column; align-items: stretch; }
-          .community-header > button { width: 100%; justify-content: center; }
+          .community-header-actions { width: 100%; }
+          .community-header-actions > button { flex: 1; justify-content: center; }
         }
 
         .add-tile { border: 1.5px dashed var(--ring-strong); border-radius: 20px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 110px; cursor: pointer; color: var(--muted); }
