@@ -295,7 +295,7 @@ const Link2 = (p) => <Glyph e="🔗" {...p} />;
 const Users = (p) => <Glyph e="👥" {...p} />;
 const Tag = (p) => <Glyph e="🏷" {...p} />;
 const FileText = (p) => <Glyph e="📄" {...p} />;
-const Heart = (p) => <Glyph e="♡" {...p} />;
+const Heart = ({ fill, ...p }) => <Glyph e={fill && fill !== "none" ? "♥" : "♡"} {...p} />;
 const Share2 = (p) => <Glyph e="🔗" {...p} />;
 
 
@@ -1540,7 +1540,7 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
 
   const LONG_CONTENT = 140;
   const isLong = (post.content || "").length > LONG_CONTENT;
-  const shownContent = expanded || !isLong ? post.content : `${post.content.slice(0, LONG_CONTENT).trimEnd()}\u2026`;
+  const shownContent = expanded || !isLong ? post.content : `${post.content.slice(0, LONG_CONTENT).trimEnd()}…`;
 
   const clickLike = () => {
     if (!myName) { onRequireLogin("like this post"); return; }
@@ -1677,7 +1677,7 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
   );
 }
 
-function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth }) {
+function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth, markLocalEdit }) {
   const [view, setView] = useState("list"); // list | create
   const [sharedPostId, setSharedPostId] = useState(null); // set when arriving via a shared post link
   const [topicFilter, setTopicFilter] = useState("");
@@ -1727,6 +1727,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
       attachments: draft.attachments, createdAt: Date.now(), updatedAt: null, status: "pending", likeCount: 0, commentCount: 0,
     };
     const next = [...communityPosts, entry];
+    markLocalEdit?.();
     setCommunityPosts(next);
     await persist(K.communityPosts, next);
     setView("list");
@@ -1741,6 +1742,10 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
     const nextPosts = communityPosts.map((p) => (p.id === postId ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (existing ? -1 : 1)) } : p));
     // Both update instantly -- persisting happens in the background so a
     // like feels immediate instead of waiting on two network round trips.
+    // markLocalEdit protects this from being overwritten by a poll that
+    // fires before the persist below actually lands in Sheets -- without
+    // it, a like could visibly "revert" if the poll's read raced the write.
+    markLocalEdit?.();
     setCommunityLikes(nextLikes);
     setCommunityPosts(nextPosts);
     persist(K.communityLikes, nextLikes).catch(() => {});
@@ -1751,6 +1756,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
     const entry = { id: uid("comment_"), postId, userId: myCustomerId, userName: myName, userPhoto: myPhoto || "", text, createdAt: Date.now(), updatedAt: null, status: "visible" };
     const nextComments = [...communityComments, entry];
     const nextPosts = communityPosts.map((p) => (p.id === postId ? { ...p, commentCount: (p.commentCount || 0) + 1 } : p));
+    markLocalEdit?.();
     setCommunityComments(nextComments);
     setCommunityPosts(nextPosts);
     await persist(K.communityComments, nextComments);
@@ -1760,6 +1766,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
   const filterByBreed = (breed) => { setSharedPostId(null); setBreedFilter(breed); setShowMine(false); setView("list"); };
 
   const deletePost = async (postId) => {
+    markLocalEdit?.();
     const nextPosts = communityPosts.filter((p) => p.id !== postId);
     setCommunityPosts(nextPosts);
     await persist(K.communityPosts, nextPosts);
@@ -1773,7 +1780,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
   };
 
   if (!communityLoaded) {
-    return <div><SectionTitle eyebrow="Community" title="Community" /><LoadingScreen /></div>;
+    return <div><SectionTitle title="Community" /><LoadingScreen /></div>;
   }
 
   return (
@@ -1790,8 +1797,8 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
         <CreatePostForm myName={myName} dogs={dogs} topics={activeTopics} onSubmit={submitPost} onCancel={() => setView("list")} />
       ) : (
         <>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-            <SectionTitle eyebrow="Community" title="Community" sub="Discover real experiences, helpful tips, training advice, and breed-specific knowledge shared by dog owners." />
+          <div className="community-header">
+            <SectionTitle title="Community" sub="Discover real experiences, helpful tips, training advice, and breed-specific knowledge shared by dog owners." />
             <Btn onClick={startCreate}><Plus size={15} /> Share a post</Btn>
           </div>
 
@@ -2188,7 +2195,12 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
 
   // Addresses come from the app-level collection now (loaded once at
   // startup alongside orders/dogs), filtered to just this customer.
-  const gateAddresses = allAddresses.filter((a) => a.customerId === myCustomerId);
+  // Memoized deliberately: without this, .filter() below would create a
+  // new array reference on every render, making AddressGate's auto-select
+  // effect think its dependencies changed on every unrelated re-render --
+  // which silently re-selected the default address the instant "Use a
+  // different address" cleared it, making that button look broken.
+  const gateAddresses = useMemo(() => allAddresses.filter((a) => a.customerId === myCustomerId), [allAddresses, myCustomerId]);
   const gateAddressesLoaded = !!myCustomerId;
   const onGateAddressesChange = async (next) => {
     const others = allAddresses.filter((a) => a.customerId !== myCustomerId);
@@ -4124,6 +4136,34 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
   const confirmedTotal = useMemo(() => filtered.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0), [filtered]);
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [autoPrintOrder, setAutoPrintOrder] = useState(null);
+  const [bulkConfirming, setBulkConfirming] = useState(false);
+
+  const NEXT_STATUS = {
+    PENDING_PAYMENT: "CONFIRMED",
+    CONFIRMED: "PREPARING",
+    PREPARING: "COOKED",
+    COOKED: "PACKED",
+    PACKED: "OUT_FOR_DELIVERY",
+    OUT_FOR_DELIVERY: "DELIVERED",
+  };
+  const bulkNextStatus = NEXT_STATUS[filters.status];
+
+  const bulkAdvanceStatus = async () => {
+    const nextStatus = NEXT_STATUS[filters.status];
+    if (!nextStatus) return;
+    const targetIds = new Set(filtered.map((o) => o.id));
+    const next = orders.map((o) => (targetIds.has(o.id)
+      ? { ...o, status: nextStatus, deliveredAt: nextStatus === "DELIVERED" ? Date.now() : null }
+      : o));
+    setOrders(next);
+    await persist(K.orders, next);
+    logAudit(`Bulk-updated ${targetIds.size} order(s) from ${STATUS_LABEL[filters.status]} to ${STATUS_LABEL[nextStatus]}`);
+    // Deliberately skipping the auto-print trigger here even if it's
+    // enabled -- popping open a print dialog for every order in a bulk
+    // action (potentially many at once) isn't practical the way it is
+    // for a single confirmation.
+    setBulkConfirming(false);
+  };
 
   const updateStatus = async (order, newStatus) => {
     const next = orders.map((o) => (o.id === order.id
@@ -4151,7 +4191,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." />
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn small variant="ghost" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={13} /> {refreshing ? "Refreshing\u2026" : "Refresh"}</Btn>
+          <Btn small variant="ghost" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={13} /> {refreshing ? "Refreshing…" : "Refresh"}</Btn>
           <Btn small variant={activeFilterCount > 0 ? "accent" : "ghost"} onClick={() => setShowFilters((s) => !s)}>
             <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
           </Btn>
@@ -4206,6 +4246,23 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
       <p style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "0 0 16px" }}>
         {filtered.length} order{filtered.length === 1 ? "" : "s"} &middot; {rupee(confirmedTotal)} confirmed total
       </p>
+
+      {bulkNextStatus && filtered.length > 0 && (
+        <Card style={{ marginBottom: 16, background: "var(--tone-good-bg)", border: "none" }}>
+          {bulkConfirming ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13.5 }}>Mark all {filtered.length} order{filtered.length === 1 ? "" : "s"} as <b>{STATUS_LABEL[bulkNextStatus]}</b>?</span>
+              <Btn small onClick={bulkAdvanceStatus} loadingText="Updating…">Yes, update all {filtered.length}</Btn>
+              <Btn small variant="ghost" onClick={() => setBulkConfirming(false)}>Cancel</Btn>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13.5 }}>All {filtered.length} filtered order{filtered.length === 1 ? "" : "s"} {filtered.length === 1 ? "is" : "are"} currently {STATUS_LABEL[filters.status]}.</span>
+              <Btn small variant="accent" onClick={() => setBulkConfirming(true)}><Check size={13} /> Mark all as {STATUS_LABEL[bulkNextStatus]}</Btn>
+            </div>
+          )}
+        </Card>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {filtered.map((o) => {
@@ -4767,6 +4824,10 @@ function App() {
   const setSlotOverridesT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setSlotOverrides(v); }, []);
   const setLocationsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setLocations(v); }, []);
   const setCommunityPostsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setCommunityPosts(v); }, []);
+  // Same protection as the tracked setters above, but callable directly --
+  // used by customer-initiated Community actions (like, comment, post,
+  // delete) which update state without going through a dedicated setter.
+  const markLocalEdit = useCallback(() => { lastAdminEditRef.current = Date.now(); }, []);
   const setCommunityTopicsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setCommunityTopics(v); }, []);
   const setOrdersT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setOrders(v); }, []);
   const setDogsT = useCallback((v) => { lastAdminEditRef.current = Date.now(); setDogs(v); }, []);
@@ -5162,7 +5223,7 @@ function App() {
               communityLikes={communityLikes} setCommunityLikes={setCommunityLikes} communityLoaded={communityLoaded}
               initialPostId={pendingCommunityPostId} onConsumeInitialPost={() => setPendingCommunityPostId(null)}
               initialBreedFilter={pendingCommunityBreedFilter} onConsumeInitialBreedFilter={() => setPendingCommunityBreedFilter(null)}
-              onOpenAuth={openAuth}
+              onOpenAuth={openAuth} markLocalEdit={markLocalEdit}
             />
           )}
 
@@ -5386,6 +5447,7 @@ function Shell({ children, theme }) {
         .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         .form-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 
+        .community-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; }
         .insta-feed { display: flex; flex-direction: column; gap: 24px; max-width: 470px; margin: 0 auto; }
         .insta-post { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; overflow: hidden; cursor: pointer; }
         .insta-post-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
@@ -5406,6 +5468,8 @@ function Shell({ children, theme }) {
         @media (max-width: 600px) {
           .insta-feed { max-width: 100%; }
           .insta-post { border-radius: 0; border-left: none; border-right: none; }
+          .community-header { flex-direction: column; align-items: stretch; }
+          .community-header > button { width: 100%; justify-content: center; }
         }
 
         .add-tile { border: 1.5px dashed var(--ring-strong); border-radius: 20px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 110px; cursor: pointer; color: var(--muted); }
