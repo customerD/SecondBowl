@@ -222,6 +222,16 @@ if (SHEETS_ENABLED) {
     if (data.error) throw new Error(data.error);
     return data;
   };
+  window.__sendPaymentReminderEmail__ = async function (details) {
+    const res = await fetch(SHEETS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "sendPaymentReminder", ...details, token: SHEETS_TOKEN }),
+    });
+    const data = await parseSheetsResponse_(res);
+    if (data.error) throw new Error(data.error);
+    return data;
+  };
 }
 
 /* ---------------------------------------------------------------------------
@@ -359,6 +369,10 @@ async function requestPasswordReset(email) {
 async function resetPasswordWithToken(token, newPassword) {
   if (window.__resetPasswordWithToken__) return window.__resetPasswordWithToken__(token, newPassword);
   throw new Error("Password reset isn't available in this preview -- it requires the Google Sheets backend to be configured.");
+}
+async function sendPaymentReminder(details) {
+  if (window.__sendPaymentReminderEmail__) return window.__sendPaymentReminderEmail__(details);
+  throw new Error("Sending email reminders isn't available in this preview -- it requires the Google Sheets backend (with email sending) to be configured.");
 }
 
 const uid = (p = "") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -1076,7 +1090,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
               <div>{formatAge(effectiveAgeMonths(dog))} &middot; {dog.weightKg} kg &middot; {ACTIVITY_LABEL[dog.activity]} activity</div>
               {onReadAboutBreed && (
                 <button onClick={() => onReadAboutBreed(dog.breed)} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, marginTop: 8, textDecoration: "underline" }}>
-                  Read or write about {dog.breed} in our Community &rarr;
+                  Read about {dog.breed} in our Community &rarr;
                 </button>
               )}
             </div>
@@ -4183,6 +4197,24 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
     await new Promise((r) => setTimeout(r, 900));
   };
 
+  const [reminderResult, setReminderResult] = useState(null); // { orderId, ok, message } | null
+  const sendReminder = async (order) => {
+    setReminderResult(null);
+    try {
+      await sendPaymentReminder({
+        customerName: order.customerName,
+        dogName: order.dogSnapshot?.name || "",
+        amount: order.totalPrice,
+        currencySymbol: order.currencySymbol || config.currencySymbol,
+        date: fmtDateLabel(order.date),
+        session: config.sessions?.[order.session]?.label || order.session,
+      });
+      setReminderResult({ orderId: order.id, ok: true, message: "Reminder email sent." });
+    } catch (err) {
+      setReminderResult({ orderId: order.id, ok: false, message: err?.message || "Couldn't send the reminder." });
+    }
+  };
+
   if (recentOrders.length === 0) return <div><SectionTitle eyebrow="Admin" title="Orders" sub="Showing yesterday, today, and upcoming orders. Older orders stay in Google Sheets and aren't deleted -- just not shown here." /><Card><p style={{ margin: 0 }}>No orders in this range yet.</p></Card></div>;
 
   return (
@@ -4309,6 +4341,7 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                       <>
                         <Btn small onClick={() => updateStatus(o, "CONFIRMED")}><Check size={13} /> Confirm payment</Btn>
                         <Btn small variant="danger" onClick={() => updateStatus(o, "CANCELLED")}>Cancel order</Btn>
+                        <Btn small variant="ghost" onClick={() => sendReminder(o)} loadingText="Sending…"><Mail size={13} /> Send payment reminder</Btn>
                       </>
                     )}
                     {!pending && !cancelled && (
@@ -4325,6 +4358,11 @@ function AdminOrders({ orders, setOrders, config, logAudit, initialFilter, onCon
                     <Btn small variant="ghost" onClick={() => setViewingInvoice(o)}><Download size={13} /> Print invoice</Btn>
                     <Btn small variant="ghost" onClick={() => copyTrackingLink(o)} loadingText="Copied!"><Link2 size={13} /> Copy tracking link</Btn>
                   </div>
+                  {reminderResult && reminderResult.orderId === o.id && (
+                    <div style={{ fontSize: 12.5, marginTop: 8, color: reminderResult.ok ? "var(--leaf)" : "var(--clay)" }}>
+                      {reminderResult.message}
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
