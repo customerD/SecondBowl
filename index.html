@@ -1466,14 +1466,14 @@ function CommunityAttachmentPicker({ attachments, setAttachments, setWarning }) 
   );
 }
 
-function CreatePostForm({ myName, dogs, topics, onSubmit, onCancel }) {
+function CreatePostForm({ myName, dogs, topics, editingPost, onSubmit, onCancel }) {
   const myDogs = dogs.filter((d) => d.owner === myName);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [topic, setTopic] = useState(topics[0]?.name || "");
-  const [breed, setBreed] = useState(BREED_ALL);
-  const [dogDetails, setDogDetails] = useState("");
-  const [attachments, setAttachments] = useState([]);
+  const [title, setTitle] = useState(editingPost?.title || "");
+  const [content, setContent] = useState(editingPost?.content || "");
+  const [topic, setTopic] = useState(editingPost?.topic || topics[0]?.name || "");
+  const [breed, setBreed] = useState(editingPost?.breed || BREED_ALL);
+  const [dogDetails, setDogDetails] = useState(editingPost?.dogDetails || "");
+  const [attachments, setAttachments] = useState(editingPost?.attachments || []);
   const [warning, setWarning] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1488,8 +1488,10 @@ function CreatePostForm({ myName, dogs, topics, onSubmit, onCancel }) {
 
   return (
     <Card style={{ maxWidth: 560 }}>
-      <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Share with the Community</div>
-      <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>Your post is reviewed by us before it goes public -- usually quick.</p>
+      <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 }}>{editingPost ? "Edit your post" : "Share with the Community"}</div>
+      <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
+        {editingPost ? "Saving your changes sends this post back for review before it's public again." : "Your post is reviewed by us before it goes public -- usually quick."}
+      </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="Title"><input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What Sandy taught me about crate training" /></Field>
         <Field label="Your writing (optional if you're just sharing photos)">
@@ -1513,7 +1515,7 @@ function CreatePostForm({ myName, dogs, topics, onSubmit, onCancel }) {
       </div>
       {warning && <p style={{ fontSize: 13, color: "var(--clay)", marginTop: 10 }}>{warning}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-        <Btn onClick={submit} disabled={submitting} loadingText="Submitting…">Submit for review</Btn>
+        <Btn onClick={submit} disabled={submitting} loadingText={editingPost ? "Saving\u2026" : "Submitting\u2026"}>{editingPost ? "Save changes" : "Submit for review"}</Btn>
         <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
       </div>
     </Card>
@@ -1537,7 +1539,7 @@ function resolveAuthorPhoto(profilePhotos, authorId, snapshotPhoto) {
   return (live ? live.photoDataUrl : snapshotPhoto) || "";
 }
 
-function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profilePhotos, onToggleLike, onAddComment, onRequireLogin, onFilterBreed, onDeletePost }) {
+function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profilePhotos, onToggleLike, onAddComment, onRequireLogin, onFilterBreed, onDeletePost, onEditPost }) {
   const [expanded, setExpanded] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
@@ -1546,6 +1548,7 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const images = (post.attachments || []).filter((a) => a.type !== "pdf");
+  const pdfAttachments = (post.attachments || []).filter((a) => a.type === "pdf");
   const initial = (post.authorName || "?").trim().charAt(0).toUpperCase();
   const displayPhoto = resolveAuthorPhoto(profilePhotos, post.authorId, post.authorPhoto);
   const iLiked = myCustomerId && (likes || []).some((l) => l.postId === post.id && l.userId === myCustomerId);
@@ -1604,6 +1607,14 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
           <img src={images[0].dataUrl} alt="" />
           {images.length > 1 && <span className="insta-multi-badge"><ImageIcon size={11} /> {images.length}</span>}
         </div>
+      ) : pdfAttachments.length > 0 ? (
+        <a href={pdfAttachments[0].dataUrl} target="_blank" rel="noopener noreferrer" className="insta-text-card" style={{ background: `linear-gradient(135deg, ${avatarColorFor(post.authorName)}, var(--ink))`, textDecoration: "none", flexDirection: "column", gap: 10 }}>
+          <FileText size={40} color="#fff" />
+          <div className="insta-text-card-title" style={{ fontSize: 17 }}>{post.title}</div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
+            {pdfAttachments.length > 1 ? `${pdfAttachments.length} PDFs — tap to view` : "Tap to view PDF"}
+          </div>
+        </a>
       ) : (
         <div className="insta-text-card" style={{ background: `linear-gradient(135deg, ${avatarColorFor(post.authorName)}, var(--ink))` }}>
           <div className="insta-text-card-title">{post.title}</div>
@@ -1633,6 +1644,16 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
       </div>
 
       {post.dogDetails && <div style={{ padding: "4px 14px 0", fontSize: 12.5, color: "var(--muted)", fontStyle: "italic" }}>{post.dogDetails}</div>}
+
+      {pdfAttachments.length > 0 && (
+        <div style={{ padding: "8px 14px 0", display: "flex", flexDirection: "column", gap: 6 }}>
+          {pdfAttachments.map((att, i) => (
+            <a key={i} href={att.dataUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--surface-muted)", borderRadius: 10, textDecoration: "none", color: "var(--ink)", fontSize: 12.5 }}>
+              <FileText size={15} color="var(--muted)" /> View PDF{att.name ? `: ${att.name}` : ""}
+            </a>
+          ))}
+        </div>
+      )}
 
       {!showComments && post.commentCount > 0 && (
         <button onClick={() => setShowComments(true)} className="insta-view-comments" style={{ background: "none", border: "none", width: "100%", textAlign: "left", cursor: "pointer" }}>
@@ -1683,7 +1704,10 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
               <button onClick={() => setConfirmingDelete(false)} style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", textTransform: "none" }}>Cancel</button>
             </span>
           ) : (
-            <button onClick={() => setConfirmingDelete(true)} style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", textTransform: "none" }}>Delete</button>
+            <span style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => onEditPost(post)} style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", textTransform: "none" }}>Edit</button>
+              <button onClick={() => setConfirmingDelete(true)} style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", textTransform: "none" }}>Delete</button>
+            </span>
           )
         )}
       </div>
@@ -1693,6 +1717,7 @@ function CommunityPostCard({ post, comments, likes, myName, myCustomerId, profil
 
 function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, breeds, config, communityTopics, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, communityLoaded, initialPostId, initialBreedFilter, onConsumeInitialPost, onConsumeInitialBreedFilter, onOpenAuth, markLocalEdit }) {
   const [view, setView] = useState("list"); // list | create
+  const [editingPost, setEditingPost] = useState(null); // post object being edited, or null when creating new
   const [sharedPostId, setSharedPostId] = useState(null); // set when arriving via a shared post link
   const [topicFilter, setTopicFilter] = useState("");
   const [breedFilter, setBreedFilter] = useState("");
@@ -1734,10 +1759,32 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
 
   const startCreate = () => {
     if (!myName) { requireLogin("share a Community post"); return; }
+    setEditingPost(null);
+    setView("create");
+  };
+  const startEdit = (post) => {
+    setEditingPost(post);
     setView("create");
   };
 
   const submitPost = async (draft) => {
+    if (editingPost) {
+      // Editing sends it back for review -- otherwise an approved post
+      // could be quietly rewritten into something that was never actually
+      // checked. Keeps its id, likes, and comment count untouched.
+      const next = communityPosts.map((p) => (p.id === editingPost.id ? {
+        ...p,
+        title: draft.title, content: draft.content, topic: draft.topic, breed: draft.breed, dogDetails: draft.dogDetails,
+        attachments: draft.attachments, updatedAt: Date.now(), status: "pending",
+      } : p));
+      markLocalEdit?.();
+      setCommunityPosts(next);
+      await persist(K.communityPosts, next);
+      setEditingPost(null);
+      setView("list");
+      setShowMine(true);
+      return;
+    }
     const entry = {
       id: uid("post_"), authorId: myCustomerId, authorName: myName, authorPhoto: myPhoto || "",
       title: draft.title, content: draft.content, topic: draft.topic, breed: draft.breed, dogDetails: draft.dogDetails,
@@ -1811,7 +1858,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
       )}
 
       {view === "create" ? (
-        <CreatePostForm myName={myName} dogs={dogs} topics={activeTopics} onSubmit={submitPost} onCancel={() => setView("list")} />
+        <CreatePostForm myName={myName} dogs={dogs} topics={activeTopics} editingPost={editingPost} onSubmit={submitPost} onCancel={() => { setEditingPost(null); setView("list"); }} />
       ) : (
         <>
           <div className="community-header">
@@ -1871,7 +1918,7 @@ function CommunityView({ myName, myCustomerId, myPhoto, profilePhotos, dogs, bre
                     post={p} comments={communityComments} likes={communityLikes}
                     myName={myName} myCustomerId={myCustomerId} profilePhotos={profilePhotos}
                     onToggleLike={toggleLike} onAddComment={addComment} onRequireLogin={requireLogin}
-                    onFilterBreed={filterByBreed} onDeletePost={deletePost}
+                    onFilterBreed={filterByBreed} onDeletePost={deletePost} onEditPost={startEdit}
                   />
                   {showMine && p.status !== "approved" && (
                     <div style={{ position: "absolute", top: 10, right: 10 }}>
@@ -3374,7 +3421,7 @@ function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOv
           // route with no fixed starting point.
           const groups = {};
           outForDelivery.forEach((o) => {
-            const groupKey = o.locationName || "\u2014no area\u2014";
+            const groupKey = o.locationName || "—no area—";
             (groups[groupKey] = groups[groupKey] || []).push(o);
           });
 
@@ -3571,10 +3618,10 @@ function AdminRules({ breeds, setBreeds, engine, setEngine, logAudit }) {
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 }}>Quantity = weight &times; ingredient rate &times; breed size &times; age &times; activity</div>
         <div className="form-grid-3">
           {["puppy", "adult", "senior"].map((k) => (
-            <Field key={k} label={`Age factor \u2014 ${k}`}><input type="number" step="0.05" style={inputStyle} value={engine.ageFactors[k]} onChange={(e) => saveEngine({ ...engine, ageFactors: { ...engine.ageFactors, [k]: Number(e.target.value) } })} /></Field>
+            <Field key={k} label={`Age factor — ${k}`}><input type="number" step="0.05" style={inputStyle} value={engine.ageFactors[k]} onChange={(e) => saveEngine({ ...engine, ageFactors: { ...engine.ageFactors, [k]: Number(e.target.value) } })} /></Field>
           ))}
           {["low", "medium", "high"].map((k) => (
-            <Field key={k} label={`Activity factor \u2014 ${k}`}><input type="number" step="0.05" style={inputStyle} value={engine.activityFactors[k]} onChange={(e) => saveEngine({ ...engine, activityFactors: { ...engine.activityFactors, [k]: Number(e.target.value) } })} /></Field>
+            <Field key={k} label={`Activity factor — ${k}`}><input type="number" step="0.05" style={inputStyle} value={engine.activityFactors[k]} onChange={(e) => saveEngine({ ...engine, activityFactors: { ...engine.activityFactors, [k]: Number(e.target.value) } })} /></Field>
           ))}
         </div>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginTop: 10 }}>Puppy &lt; 12 months &middot; Adult 12&ndash;84 months &middot; Senior &gt; 84 months. Saved instantly.</div>
@@ -4044,7 +4091,7 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
         </div>
         <div style={{ marginTop: 14 }}>
           <Btn small variant={config.gstEnabled ? "accent" : "ghost"} onClick={() => updateIdentity({ gstEnabled: !config.gstEnabled })}>
-            {config.gstEnabled ? "GST is ON \u2014 click to turn off" : "GST is OFF \u2014 click to turn on"}
+            {config.gstEnabled ? "GST is ON — click to turn off" : "GST is OFF — click to turn on"}
           </Btn>
         </div>
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>When GST is on, it's added on top of food + delivery for every new order and shown as its own line item to customers and in Orders. Doesn't apply to orders already placed.</p>
@@ -4118,7 +4165,7 @@ function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, f
           </span>
         </div>
 
-        <Field label={`Set capacity for ${fmtDateLabel(pickDate)} \u2014 ${config.sessions[pickSession].label}`}>
+        <Field label={`Set capacity for ${fmtDateLabel(pickDate)} — ${config.sessions[pickSession].label}`}>
           <div style={{ display: "flex", gap: 8 }}>
             <input type="number" min={0} style={inputStyle} value={capacityInput} onChange={(e) => setCapacityInput(e.target.value)} placeholder={String(pickCapacity)} />
             <Btn small onClick={setOverrideCapacity}>Set</Btn>
