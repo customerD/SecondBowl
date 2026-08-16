@@ -1076,7 +1076,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
               <div>{formatAge(effectiveAgeMonths(dog))} &middot; {dog.weightKg} kg &middot; {ACTIVITY_LABEL[dog.activity]} activity</div>
               {onReadAboutBreed && (
                 <button onClick={() => onReadAboutBreed(dog.breed)} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, marginTop: 8, textDecoration: "underline" }}>
-                  Read about {dog.breed} in our Community &rarr;
+                  Read or write about {dog.breed} in our Community &rarr;
                 </button>
               )}
             </div>
