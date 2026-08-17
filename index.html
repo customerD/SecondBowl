@@ -355,7 +355,7 @@ const ADMIN_PASSWORD = "dsudo_007";
 // Bump this manually every time you deploy a new version -- shown as a
 // small badge in the header, right after the business name, so you can
 // tell at a glance which version is actually live on a given browser/tab.
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "2.0.0";
 
 const K = {
   config: "dfp:config",
@@ -4579,6 +4579,8 @@ function AdminOrders({ orders, setOrders, carts, setCarts, config, logAudit, ini
           gpayLink: buildUpiLink("gpay", config.upiId, config.serviceName, order),
           phonepeLink: buildUpiLink("phonepe", config.upiId, config.serviceName, order),
           upiLink: buildUpiLink("upi", config.upiId, config.serviceName, order),
+          upiId: config.upiId,
+          orderRef: order.id.replace(/^ord_/, ""),
         } : {}),
       });
       setReminderResult({ orderId: order.id, ok: true, message: "Reminder email sent." });
