@@ -243,6 +243,14 @@ if (SHEETS_ENABLED) {
     if (data.error) throw new Error(data.error);
     return data;
   };
+  window.__checkSlotCapacity__ = async function (date, session, capacity) {
+    const params = new URLSearchParams({ action: "checkSlotCapacity", date, session, capacity: String(capacity) });
+    if (SHEETS_TOKEN) params.set("token", SHEETS_TOKEN);
+    const res = await fetch(`${SHEETS_API_URL}?${params.toString()}`);
+    const data = await parseSheetsResponse_(res);
+    if (data.error) throw new Error(data.error);
+    return data;
+  };
 }
 
 /* ---------------------------------------------------------------------------
@@ -394,6 +402,17 @@ async function sendPaymentReminder(details) {
 // place -- callers should fall back to the simple client-side append.
 async function placeOrderAtomic(order, capacity) {
   if (window.__placeOrderAtomic__) return window.__placeOrderAtomic__(order, capacity);
+  return null;
+}
+// Verifies a slot still has room BEFORE the customer commits to paying --
+// catches the common case of a slot that quietly filled up some time
+// earlier, rather than only finding out at the final "I've paid" step
+// after money may have already changed hands. Not a reservation by
+// itself (a read can't reserve anything); placeOrderAtomic's own fresh
+// check at the moment of writing remains the real safety net for a true
+// simultaneous collision between two customers.
+async function checkSlotCapacity(date, session, capacity) {
+  if (window.__checkSlotCapacity__) return window.__checkSlotCapacity__(date, session, capacity);
   return null;
 }
 
@@ -2476,9 +2495,23 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
     };
   };
 
-  const goToPayment = () => {
+  const goToPayment = async () => {
     const draft = buildDraft();
     if (!draft) return;
+
+    const capacity = resolveCapacity(draft.date, draft.session, config, slotOverrides);
+    try {
+      await checkSlotCapacity(draft.date, draft.session, capacity);
+    } catch (err) {
+      if (err?.message === "slot_full") {
+        setSlotFullError(true);
+        return;
+      }
+      // Any other failure -- don't block the customer over a check that
+      // couldn't complete; the final atomic check at actual payment time
+      // still protects against a genuine double-booking either way.
+    }
+
     saveCart({ status: "awaiting_payment", draftSnapshot: draft, reachedPaymentAt: Date.now() });
     if (qrCode && config.codEnabled) {
       setDraftOrder(draft);
@@ -2843,7 +2876,7 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700 }}>{rupee(total)}</div>
                 </div>
               </div>
-              <Btn onClick={goToPayment} full style={{ marginTop: 14 }} disabled={preview.length === 0}>
+              <Btn onClick={goToPayment} full style={{ marginTop: 14 }} disabled={preview.length === 0} loadingText="Checking availability…">
                 {qrCode ? "Continue to payment" : "Place order (Cash on Delivery)"}
               </Btn>
             </Card>
