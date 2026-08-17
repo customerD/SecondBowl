@@ -1,4 +1,4 @@
-n<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -471,6 +471,24 @@ function downloadDataUrl(dataUrl, filename) {
   }
 }
 
+// Builds a UPI deep link for a specific app (gpay://, phonepe://, or the
+// generic upi:// scheme most other UPI apps also register for). The
+// amount and order ID come straight from the order itself, not typed in
+// by the customer, so there's nothing to get wrong on their end -- though
+// note this is still just a prefilled link, not something this app can
+// verify was actually paid; see the payment-confirmation flow for that.
+function buildUpiLink(scheme, payeeUpi, payeeName, order) {
+  const params = new URLSearchParams({
+    pa: payeeUpi,
+    pn: payeeName,
+    tr: order.id,
+    tn: `order id : ${order.id}`,
+    am: String(order.totalPrice),
+    cu: "INR",
+  });
+  return `${scheme}://upi/pay?${params.toString()}`;
+}
+
 /* ---------------------------- Seed data --------------------------------- */
 
 const SEED_INGREDIENTS = [
@@ -531,6 +549,7 @@ const SEED_CONFIG = {
   logoDataUrl: "",
   codEnabled: false,
   autoPrintOnConfirm: false,
+  upiId: "",
   mealChecklist: [{ id: "default_1", text: "A pinch of salt, turmeric and ghee will be added." }],
   orderingPaused: false,
   orderingPausedMessage: "We're not taking new orders right now. Please check back soon.",
@@ -1090,7 +1109,7 @@ function DogsView({ dogs, setDogs, breeds, myName, myCustomerId, allAddresses, s
               <div>{formatAge(effectiveAgeMonths(dog))} &middot; {dog.weightKg} kg &middot; {ACTIVITY_LABEL[dog.activity]} activity</div>
               {onReadAboutBreed && (
                 <button onClick={() => onReadAboutBreed(dog.breed)} style={{ background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 12.5, marginTop: 8, textDecoration: "underline" }}>
-                  Read or write about {dog.breed} in our Community &rarr;
+                  Read about {dog.breed} in our Community &rarr;
                 </button>
               )}
             </div>
@@ -2478,13 +2497,30 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
       <div style={{ maxWidth: 440 }}>
         <SectionTitle eyebrow="Customer" title="Scan to pay" />
         <Card style={{ textAlign: "center" }}>
-          <img src={qrCode} alt="Payment QR code" style={{ width: "100%", maxWidth: 260, borderRadius: 16, border: "1px solid var(--ring)", margin: "0 auto 16px" }} />
           <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, marginBottom: 4 }}>{rupee(draftOrder.totalPrice)}</div>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 18 }}>
             {draftOrder.dogSnapshot.name}&apos;s meal &middot; {fmtDateLabel(draftOrder.date)} &middot; {config.sessions[draftOrder.session].label}
             {draftOrder.deliveryFee > 0 && <> &middot; incl. {rupee(draftOrder.deliveryFee)} delivery</>}
             {draftOrder.gstAmount > 0 && <> &middot; incl. {rupee(draftOrder.gstAmount)} GST</>}
           </div>
+
+          {config.upiId && (
+            <div className="upi-app-buttons">
+              <a href={buildUpiLink("gpay", config.upiId, config.serviceName, draftOrder)} style={{ textDecoration: "none" }}>
+                <Btn full variant="accent">Pay with Google Pay</Btn>
+              </a>
+              <a href={buildUpiLink("phonepe", config.upiId, config.serviceName, draftOrder)} style={{ textDecoration: "none" }}>
+                <Btn full variant="accent">Pay with PhonePe</Btn>
+              </a>
+              <a href={buildUpiLink("upi", config.upiId, config.serviceName, draftOrder)} style={{ textDecoration: "none" }}>
+                <Btn full variant="outline">Pay with another UPI app</Btn>
+              </a>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 0" }}>The amount is filled in automatically -- just confirm and pay in the app.</p>
+            </div>
+          )}
+
+          <img src={qrCode} alt="Payment QR code" style={{ width: "100%", maxWidth: 260, borderRadius: 16, border: "1px solid var(--ring)", margin: "0 auto 16px" }} />
+          {config.upiId && <p className="upi-qr-note" style={{ fontSize: 12, color: "var(--muted)", marginTop: -10, marginBottom: 16 }}>Or scan this code with any UPI app</p>}
           <Btn full variant="outline" onClick={() => downloadDataUrl(qrCode, "payment-qr-code.png")} style={{ marginBottom: 10 }}><Download size={15} /> Download QR code</Btn>
           <Btn full onClick={() => finalizeOrder(draftOrder, "PENDING_PAYMENT")}>I&apos;ve completed the payment</Btn>
           <Btn full variant="ghost" style={{ marginTop: 8 }} onClick={() => { setStage("build"); setDraftOrder(null); }}>Back</Btn>
@@ -3898,6 +3934,16 @@ function AdminPayments({ qrCode, setQrCode, config, setConfig, logAudit }) {
         <Btn small variant={config.autoPrintOnConfirm ? "danger" : "accent"} onClick={toggleAutoPrint}>
           {config.autoPrintOnConfirm ? "Disable auto-print" : "Enable auto-print"}
         </Btn>
+      </Card>
+
+      <Card style={{ marginBottom: 16, maxWidth: 420 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 8 }}>UPI ID</div>
+        <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>
+          On a phone, customers get direct "Pay with Google Pay / PhonePe" buttons that open the app with this UPI ID and the exact order amount already filled in, alongside the QR code above. Leave this blank to only show the QR code.
+        </p>
+        <Field label="UPI ID (e.g. yourname@bank)">
+          <input style={inputStyle} defaultValue={config.upiId} onBlur={(e) => { const next = { ...config, upiId: e.target.value.trim() }; setConfig(next); persist(K.config, next); }} placeholder="dhanush544@okicici" />
+        </Field>
       </Card>
 
       <Card style={{ maxWidth: 420 }}>
@@ -5618,6 +5664,12 @@ function Shell({ children, theme }) {
         .insta-excerpt { padding: 4px 14px 0; font-size: 13px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
         .insta-view-comments { padding: 6px 14px 0; font-size: 13px; color: var(--muted); cursor: pointer; }
         .insta-timestamp { padding: 6px 14px 14px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+        .upi-app-buttons { display: none; }
+        .upi-qr-note { display: none; }
+        @media (max-width: 780px) {
+          .upi-app-buttons { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+          .upi-qr-note { display: block; }
+        }
         @media (max-width: 600px) {
           .insta-feed { max-width: 100%; }
           .community-header { flex-direction: column; align-items: stretch; }
