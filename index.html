@@ -478,15 +478,25 @@ function downloadDataUrl(dataUrl, filename) {
 // note this is still just a prefilled link, not something this app can
 // verify was actually paid; see the payment-confirmation flow for that.
 function buildUpiLink(scheme, payeeUpi, payeeName, order) {
-  const params = new URLSearchParams({
+  // The internal "ord_" prefix is just our own storage convention -- not
+  // meaningful to a customer looking at their payment app, so it's
+  // dropped here for a clean, short reference.
+  const shortId = order.id.replace(/^ord_/, "");
+  const params = {
     pa: payeeUpi,
     pn: payeeName,
-    tr: order.id,
-    tn: `order id : ${order.id}`,
+    tr: shortId,
+    tn: `Order ID : ${shortId}`,
     am: String(order.totalPrice),
     cu: "INR",
-  });
-  return `${scheme}://upi/pay?${params.toString()}`;
+  };
+  // Built manually with encodeURIComponent rather than URLSearchParams,
+  // which encodes spaces as "+" by default -- several UPI apps don't
+  // reliably decode "+" back to a space for custom URL schemes like this
+  // one, showing a literal plus sign instead. %20 displays cleanly
+  // everywhere.
+  const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return `${scheme}://upi/pay?${query}`;
 }
 
 /* ---------------------------- Seed data --------------------------------- */
@@ -2515,13 +2525,21 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
               <a href={buildUpiLink("upi", config.upiId, config.serviceName, draftOrder)} style={{ textDecoration: "none" }}>
                 <Btn full variant="outline">Pay with another UPI app</Btn>
               </a>
-              <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 0" }}>The amount is filled in automatically -- just confirm and pay in the app.</p>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 10px" }}>The amount is filled in automatically -- just confirm and pay in the app.</p>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "var(--tone-warn-bg)", borderRadius: 12, padding: "10px 12px", textAlign: "left" }}>
+                <AlertTriangle size={16} color="var(--tone-warn-fg)" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12.5, color: "var(--tone-warn-fg)", fontWeight: 600, lineHeight: 1.4 }}>
+                  Important: after paying, come back to this screen and tap "I&apos;ve completed the payment" below. Your order isn&apos;t created until you do.
+                </span>
+              </div>
             </div>
           )}
 
-          <img src={qrCode} alt="Payment QR code" style={{ width: "100%", maxWidth: 260, borderRadius: 16, border: "1px solid var(--ring)", margin: "0 auto 16px" }} />
-          {config.upiId && <p className="upi-qr-note" style={{ fontSize: 12, color: "var(--muted)", marginTop: -10, marginBottom: 16 }}>Or scan this code with any UPI app</p>}
-          <Btn full variant="outline" onClick={() => downloadDataUrl(qrCode, "payment-qr-code.png")} style={{ marginBottom: 10 }}><Download size={15} /> Download QR code</Btn>
+          <div className={config.upiId ? "qr-desktop-only" : ""}>
+            <img src={qrCode} alt="Payment QR code" style={{ width: "100%", maxWidth: 260, borderRadius: 16, border: "1px solid var(--ring)", margin: "0 auto 16px" }} />
+            {config.upiId && <p className="upi-qr-note" style={{ fontSize: 12, color: "var(--muted)", marginTop: -10, marginBottom: 16 }}>Or scan this code with any UPI app</p>}
+            <Btn full variant="outline" onClick={() => downloadDataUrl(qrCode, "payment-qr-code.png")} style={{ marginBottom: 10 }}><Download size={15} /> Download QR code</Btn>
+          </div>
           <Btn full onClick={() => finalizeOrder(draftOrder, "PENDING_PAYMENT")}>I&apos;ve completed the payment</Btn>
           <Btn full variant="ghost" style={{ marginTop: 8 }} onClick={() => { setStage("build"); setDraftOrder(null); }}>Back</Btn>
           <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 14 }}>Your order is held in your slot as soon as you confirm payment here &mdash; our team verifies it and moves your order to Confirmed.</p>
@@ -5665,10 +5683,9 @@ function Shell({ children, theme }) {
         .insta-view-comments { padding: 6px 14px 0; font-size: 13px; color: var(--muted); cursor: pointer; }
         .insta-timestamp { padding: 6px 14px 14px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
         .upi-app-buttons { display: none; }
-        .upi-qr-note { display: none; }
         @media (max-width: 780px) {
           .upi-app-buttons { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
-          .upi-qr-note { display: block; }
+          .qr-desktop-only { display: none; }
         }
         @media (max-width: 600px) {
           .insta-feed { max-width: 100%; }
