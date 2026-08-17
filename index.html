@@ -273,7 +273,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "2.1.0";
+  const APP_VERSION = "2.2.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1501,6 +1501,7 @@
     const [draftOrder, setDraftOrder] = useState(null);
     const [placed, setPlaced] = useState(null);
     const [slotFullError, setSlotFullError] = useState(false);
+    const [sessionClosedError, setSessionClosedError] = useState(false);
     useEffect(() => {
       if (!dogId && myDogs[0]) setDogId(myDogs[0].id);
     }, [myDogs.length]);
@@ -1521,7 +1522,12 @@
           const idx = dates.indexOf(existing.date);
           if (idx >= 0) setDateIdx(idx);
         }
-        if (existing.session) setSession(existing.session);
+        if (existing.session && existing.date) {
+          const restoredState = sessionState(existing.date, existing.session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+          if (restoredState === "OPEN" || restoredState === "CLOSING_SOON") {
+            setSession(existing.session);
+          }
+        }
         if (Array.isArray(existing.selectedIds)) setSelected(new Set(existing.selectedIds));
         if (existing.customQty) setCustomQty(existing.customQty);
         if (existing.deliveryNote) setDeliveryNote(existing.deliveryNote);
@@ -1632,6 +1638,12 @@
       };
     };
     const goToPayment = async () => {
+      const currentState = sessionState(date, session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+      if (currentState !== "OPEN" && currentState !== "CLOSING_SOON") {
+        setSessionClosedError(true);
+        setSession(null);
+        return;
+      }
       const draft = buildDraft();
       if (!draft) return;
       const ok = await saveCart({ status: "awaiting_payment", draftSnapshot: draft, reachedPaymentAt: Date.now() });
@@ -1700,6 +1712,14 @@
     if (slotFullError) {
       return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 480 } }, /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center", padding: 32 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "var(--tone-warn-bg)", borderRadius: "50%", padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 26, color: "var(--tone-warn-fg)" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginBottom: 8 } }, "That slot just filled up"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 16 } }, "Someone booked the last spot in this session moments before you did. If you've already paid, don't worry -- we can still see your order details and will reach out to sort it out. Otherwise, please pick a different date or session."), /* @__PURE__ */ React.createElement(Btn, { onClick: () => {
         setSlotFullError(false);
+        setStage("build");
+        setDraftOrder(null);
+        setSession(null);
+      } }, "Choose a different slot")));
+    }
+    if (sessionClosedError) {
+      return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 480 } }, /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center", padding: 32 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", background: "var(--tone-warn-bg)", borderRadius: "50%", padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 26, color: "var(--tone-warn-fg)" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginBottom: 8 } }, "This session isn't open anymore"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 16 } }, "The session you had selected has since closed, filled up, or been cancelled. Please pick a different date or session to continue."), /* @__PURE__ */ React.createElement(Btn, { onClick: () => {
+        setSessionClosedError(false);
         setStage("build");
         setDraftOrder(null);
         setSession(null);
