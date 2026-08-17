@@ -355,7 +355,7 @@ const ADMIN_PASSWORD = "dsudo_007";
 // Bump this manually every time you deploy a new version -- shown as a
 // small badge in the header, right after the business name, so you can
 // tell at a glance which version is actually live on a given browser/tab.
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.9.0";
 
 const K = {
   config: "dfp:config",
@@ -3084,16 +3084,33 @@ function MyOrdersView({ myName, orders, config, qrCode }) {
       {viewingQrOrder && (
         <Modal onCancel={() => setViewingQrOrder(null)} maxWidth={340}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 12 }}>Scan to pay</div>
-            {qrCode ? (
-              <>
-                <img src={qrCode} alt="Payment QR code" style={{ width: "100%", maxWidth: 240, borderRadius: 16, border: "1px solid var(--ring)", marginBottom: 12 }} />
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, marginBottom: 14 }}>{rupee(viewingQrOrder.totalPrice)}</div>
-                <Btn full variant="outline" onClick={() => downloadDataUrl(qrCode, "payment-qr-code.png")} style={{ marginBottom: 8 }}><Download size={15} /> Download QR code</Btn>
-              </>
-            ) : (
-              <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>No payment QR is currently set up. Contact us for payment options.</p>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 }}>Complete your payment</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, marginBottom: 14 }}>{rupee(viewingQrOrder.totalPrice)}</div>
+
+            {config.upiId && (
+              <div className="upi-app-buttons">
+                <a href={buildUpiLink("gpay", config.upiId, config.serviceName, viewingQrOrder)} style={{ textDecoration: "none" }}>
+                  <Btn full variant="accent">Pay with Google Pay</Btn>
+                </a>
+                <a href={buildUpiLink("phonepe", config.upiId, config.serviceName, viewingQrOrder)} style={{ textDecoration: "none" }}>
+                  <Btn full variant="accent">Pay with PhonePe</Btn>
+                </a>
+                <a href={buildUpiLink("upi", config.upiId, config.serviceName, viewingQrOrder)} style={{ textDecoration: "none" }}>
+                  <Btn full variant="outline">Pay with another UPI app</Btn>
+                </a>
+              </div>
             )}
+
+            <div className={config.upiId ? "qr-desktop-only" : ""}>
+              {qrCode ? (
+                <>
+                  <img src={qrCode} alt="Payment QR code" style={{ width: "100%", maxWidth: 240, borderRadius: 16, border: "1px solid var(--ring)", marginBottom: 12 }} />
+                  <Btn full variant="outline" onClick={() => downloadDataUrl(qrCode, "payment-qr-code.png")} style={{ marginBottom: 8 }}><Download size={15} /> Download QR code</Btn>
+                </>
+              ) : (
+                <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>No payment QR is currently set up. Contact us for payment options.</p>
+              )}
+            </div>
             <Btn full variant="ghost" onClick={() => setViewingQrOrder(null)}>Close</Btn>
           </div>
         </Modal>
@@ -4558,6 +4575,11 @@ function AdminOrders({ orders, setOrders, carts, setCarts, config, logAudit, ini
         currencySymbol: order.currencySymbol || config.currencySymbol,
         date: fmtDateLabel(order.date),
         session: config.sessions?.[order.session]?.label || order.session,
+        ...(config.upiId ? {
+          gpayLink: buildUpiLink("gpay", config.upiId, config.serviceName, order),
+          phonepeLink: buildUpiLink("phonepe", config.upiId, config.serviceName, order),
+          upiLink: buildUpiLink("upi", config.upiId, config.serviceName, order),
+        } : {}),
       });
       setReminderResult({ orderId: order.id, ok: true, message: "Reminder email sent." });
     } catch (err) {
