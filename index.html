@@ -251,6 +251,16 @@ if (SHEETS_ENABLED) {
     if (data.error) throw new Error(data.error);
     return data;
   };
+  window.__reserveSlot__ = async function (cart, capacity) {
+    const res = await fetch(SHEETS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "reserveSlot", cart: JSON.stringify(cart), capacity, token: SHEETS_TOKEN }),
+    });
+    const data = await parseSheetsResponse_(res);
+    if (data.error) throw new Error(data.error);
+    return data;
+  };
 }
 
 /* ---------------------------------------------------------------------------
@@ -413,6 +423,15 @@ async function placeOrderAtomic(order, capacity) {
 // simultaneous collision between two customers.
 async function checkSlotCapacity(date, session, capacity) {
   if (window.__checkSlotCapacity__) return window.__checkSlotCapacity__(date, session, capacity);
+  return null;
+}
+// Actually holds a slot, atomically -- not just a point-in-time check.
+// Renewing this regularly while a customer has a session selected is
+// what makes a second customer's own reservation attempt see the first
+// customer's hold immediately and get rejected, instead of both checks
+// passing moments apart before either had written anything.
+async function reserveSlotAtomic(cart, capacity) {
+  if (window.__reserveSlot__) return window.__reserveSlot__(cart, capacity);
   return null;
 }
 
@@ -2416,10 +2435,29 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
       status: "building",
       ...extra,
     };
+
+    if (session) {
+      const capacity = resolveCapacity(date, session, config, slotOverrides);
+      try {
+        const result = await reserveSlotAtomic(entry, capacity);
+        if (result?.reservedUntil) entry.reservedUntil = result.reservedUntil;
+      } catch (err) {
+        if (err?.message === "slot_full") {
+          setSlotFullError(true);
+          return false;
+        }
+        // Any other failure (a network hiccup, or no real backend at all
+        // -- reserveSlotAtomic returns null rather than throwing in that
+        // case) -- fall through to the plain save below either way, so
+        // the customer's progress still survives a refresh.
+      }
+    }
+
     const next = [...carts.filter((c) => c.id !== cartIdRef.current), entry];
     markLocalEdit?.();
     setCarts(next);
     await persist(K.carts, next);
+    return true;
   };
 
   // Debounced: saves a little while after the customer stops actively
@@ -2499,20 +2537,9 @@ function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhone
     const draft = buildDraft();
     if (!draft) return;
 
-    const capacity = resolveCapacity(draft.date, draft.session, config, slotOverrides);
-    try {
-      await checkSlotCapacity(draft.date, draft.session, capacity);
-    } catch (err) {
-      if (err?.message === "slot_full") {
-        setSlotFullError(true);
-        return;
-      }
-      // Any other failure -- don't block the customer over a check that
-      // couldn't complete; the final atomic check at actual payment time
-      // still protects against a genuine double-booking either way.
-    }
+    const ok = await saveCart({ status: "awaiting_payment", draftSnapshot: draft, reachedPaymentAt: Date.now() });
+    if (!ok) return; // slotFullError already set inside saveCart
 
-    saveCart({ status: "awaiting_payment", draftSnapshot: draft, reachedPaymentAt: Date.now() });
     if (qrCode && config.codEnabled) {
       setDraftOrder(draft);
       setStage("choosePayment");
