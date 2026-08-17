@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Second Bowl &mdash; Dog Food Ordering v1.8</title>
+<title>Second Bowl &mdash; Dog Food Ordering</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -352,6 +352,10 @@ const Share2 = (p) => <Glyph e="🔗" {...p} />;
 
 const SHARED = true;
 const ADMIN_PASSWORD = "dsudo_007";
+// Bump this manually every time you deploy a new version -- shown as a
+// small badge in the header, right after the business name, so you can
+// tell at a glance which version is actually live on a given browser/tab.
+const APP_VERSION = "1.8.0";
 
 const K = {
   config: "dfp:config",
@@ -5765,7 +5769,10 @@ function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin,
             </div>
           )}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{config.serviceName}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{config.serviceName}</div>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", flexShrink: 0 }}>v{APP_VERSION}</span>
+            </div>
             <div className="app-brand-tagline" style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--muted)", letterSpacing: "0.04em" }}>{config.tagline}</div>
           </div>
         </div>
