@@ -265,7 +265,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "3.1.0";
+  const APP_VERSION = "1.0.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1860,6 +1860,7 @@
     const [locationResolved, setLocationResolved] = useState(null);
     const [phoneResolved, setPhoneResolved] = useState({ ok: false });
     const cartIdRef = useRef(null);
+    const finalizingRef = useRef(false);
     const restoredCartRef = useRef(false);
     const cartSaveTimerRef = useRef(null);
     const gateAddresses = useMemo(() => allAddresses.filter((a) => a.customerId === myCustomerId), [allAddresses, myCustomerId]);
@@ -2137,6 +2138,15 @@
       }
     };
     const finalizeOrder = async (draft, status, paymentMethod = "upi") => {
+      if (finalizingRef.current) return;
+      finalizingRef.current = true;
+      try {
+        await finalizeOrderInner(draft, status, paymentMethod);
+      } finally {
+        finalizingRef.current = false;
+      }
+    };
+    const finalizeOrderInner = async (draft, status, paymentMethod = "upi") => {
       const order = { ...draft, status, paymentMethod, paymentClaimedAt: status === "PENDING_PAYMENT" ? Date.now() : null };
       if (window.__placeOrderAtomic__) {
         const capacity = resolveCapacity(order.date, order.session, config, slotOverrides);
@@ -2179,6 +2189,7 @@
         persist(K.carts, nextCarts).catch(() => {
         });
       }
+      cartIdRef.current = null;
       setPlaced(order);
       setStage("done");
     };
