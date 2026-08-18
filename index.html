@@ -273,7 +273,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "2.5.0";
+  const APP_VERSION = "2.6.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -434,17 +434,178 @@
     return `${scheme}://upi/pay?${query}`;
   }
   const SEED_INGREDIENTS = [
-    { id: "chicken", name: "Chicken", category: "Protein", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: true, min: 0, max: 0, default: 0, baseRatePerKg: 4.8, pricePerUnit: 0.9, displayOrder: 1 },
-    { id: "rice", name: "Rice", category: "Carbohydrate", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: true, min: 0, max: 0, default: 0, baseRatePerKg: 3.2, pricePerUnit: 0.2, displayOrder: 2 },
-    { id: "pumpkin", name: "Pumpkin", category: "Vegetable", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: true, min: 0, max: 0, default: 0, baseRatePerKg: 2, pricePerUnit: 0.3, displayOrder: 3 },
-    { id: "carrot", name: "Carrot", category: "Vegetable", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: true, min: 0, max: 0, default: 0, baseRatePerKg: 1, pricePerUnit: 0.2, displayOrder: 4 },
-    { id: "egg", name: "Egg", category: "Protein", unit: "count", available: true, customerSelectable: true, quantityAdjustable: true, autoIncluded: true, min: 1, max: 3, default: 1, baseRatePerKg: 0, pricePerUnit: 8, displayOrder: 5 },
-    { id: "broccoli", name: "Broccoli", category: "Vegetable", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 1.2, pricePerUnit: 0.4, displayOrder: 6 },
-    { id: "sweetpotato", name: "Sweet Potato", category: "Carbohydrate", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 1.5, pricePerUnit: 0.3, displayOrder: 7 },
-    { id: "beans", name: "Beans", category: "Vegetable", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 1, pricePerUnit: 0.25, displayOrder: 8 },
-    { id: "sardines", name: "Sardines", category: "Protein", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 0.9, pricePerUnit: 1.1, displayOrder: 9 },
+    {
+      id: "chicken",
+      name: "Chicken",
+      category: "Protein",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: true,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 4.8,
+      pricePerUnit: 0.9,
+      displayOrder: 1,
+      bySize: { Small: { min: 30, max: 120, prefmin: 30, prefmax: 100 }, Medium: { min: 70, max: 220, prefmin: 70, prefmax: 180 }, Large: { min: 100, max: 300, prefmin: 100, prefmax: 250 }, Giant: { min: 180, max: 400, prefmin: 180, prefmax: 350 } }
+    },
+    {
+      id: "rice",
+      name: "Rice",
+      category: "Carbohydrate",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: true,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 3.2,
+      pricePerUnit: 0.2,
+      displayOrder: 2,
+      bySize: { Small: { min: 6, max: 100, prefmin: 6, prefmax: 60 }, Medium: { min: 14, max: 183, prefmin: 14, prefmax: 108 }, Large: { min: 20, max: 250, prefmin: 20, prefmax: 150 }, Giant: { min: 36, max: 333, prefmin: 36, prefmax: 210 } }
+    },
+    {
+      id: "pumpkin",
+      name: "Pumpkin",
+      category: "Vegetable",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: true,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 2,
+      pricePerUnit: 0.3,
+      displayOrder: 3,
+      bySize: { Small: { min: 6, max: 40, prefmin: 6, prefmax: 24 }, Medium: { min: 14, max: 73, prefmin: 14, prefmax: 43 }, Large: { min: 20, max: 100, prefmin: 20, prefmax: 60 }, Giant: { min: 36, max: 133, prefmin: 36, prefmax: 84 } }
+    },
+    {
+      id: "carrot",
+      name: "Carrot",
+      category: "Vegetable",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: true,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 1,
+      pricePerUnit: 0.2,
+      displayOrder: 4,
+      bySize: { Small: { min: 3, max: 30, prefmin: 3, prefmax: 16 }, Medium: { min: 7, max: 55, prefmin: 7, prefmax: 29 }, Large: { min: 10, max: 75, prefmin: 10, prefmax: 40 }, Giant: { min: 18, max: 100, prefmin: 18, prefmax: 56 } }
+    },
+    {
+      id: "egg",
+      name: "Egg",
+      category: "Protein",
+      unit: "count",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: true,
+      autoIncluded: true,
+      min: 1,
+      max: 3,
+      default: 1,
+      baseRatePerKg: 0,
+      pricePerUnit: 8,
+      displayOrder: 5,
+      gramsPerUnit: 50,
+      bySize: { Small: { min: 0, max: 1, prefmin: 0, prefmax: 1 }, Medium: { min: 0, max: 2, prefmin: 0, prefmax: 2 }, Large: { min: 0, max: 3, prefmin: 1, prefmax: 3 }, Giant: { min: 0, max: 3, prefmin: 1, prefmax: 3 } }
+    },
+    {
+      id: "broccoli",
+      name: "Broccoli",
+      category: "Vegetable",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: false,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 1.2,
+      pricePerUnit: 0.4,
+      displayOrder: 6,
+      bySize: { Small: { min: 3, max: 30, prefmin: 3, prefmax: 16 }, Medium: { min: 7, max: 55, prefmin: 7, prefmax: 29 }, Large: { min: 10, max: 75, prefmin: 10, prefmax: 40 }, Giant: { min: 18, max: 100, prefmin: 18, prefmax: 56 } }
+    },
+    {
+      id: "sweetpotato",
+      name: "Sweet Potato",
+      category: "Carbohydrate",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: false,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 1.5,
+      pricePerUnit: 0.3,
+      displayOrder: 7,
+      bySize: { Small: { min: 6, max: 80, prefmin: 6, prefmax: 40 }, Medium: { min: 14, max: 147, prefmin: 14, prefmax: 72 }, Large: { min: 20, max: 200, prefmin: 20, prefmax: 100 }, Giant: { min: 36, max: 267, prefmin: 36, prefmax: 140 } }
+    },
+    {
+      id: "beans",
+      name: "Beans",
+      category: "Vegetable",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: false,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 1,
+      pricePerUnit: 0.25,
+      displayOrder: 8,
+      bySize: { Small: { min: 3, max: 30, prefmin: 3, prefmax: 16 }, Medium: { min: 7, max: 55, prefmin: 7, prefmax: 29 }, Large: { min: 10, max: 75, prefmin: 10, prefmax: 40 }, Giant: { min: 18, max: 100, prefmin: 18, prefmax: 56 } }
+    },
+    {
+      id: "sardines",
+      name: "Sardines",
+      category: "Protein",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: false,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 0.9,
+      pricePerUnit: 1.1,
+      displayOrder: 9,
+      bySize: { Small: { min: 3, max: 40, prefmin: 3, prefmax: 24 }, Medium: { min: 7, max: 73, prefmin: 7, prefmax: 43 }, Large: { min: 10, max: 100, prefmin: 10, prefmax: 60 }, Giant: { min: 18, max: 133, prefmin: 18, prefmax: 84 } }
+    },
     { id: "chickenheart", name: "Chicken Heart", category: "Protein", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 0.6, pricePerUnit: 1, displayOrder: 10 },
-    { id: "chickenliver", name: "Chicken Liver", category: "Protein", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 0.5, pricePerUnit: 1, displayOrder: 11 },
+    {
+      id: "chickenliver",
+      name: "Chicken Liver",
+      category: "Protein",
+      unit: "g",
+      available: true,
+      customerSelectable: true,
+      quantityAdjustable: false,
+      autoIncluded: false,
+      min: 0,
+      max: 0,
+      default: 0,
+      baseRatePerKg: 0.5,
+      pricePerUnit: 1,
+      displayOrder: 11,
+      bySize: { Small: { min: 1.5, max: 16, prefmin: 1.5, prefmax: 8 }, Medium: { min: 3.5, max: 29, prefmin: 3.5, prefmax: 14.5 }, Large: { min: 5, max: 40, prefmin: 5, prefmax: 20 }, Giant: { min: 9, max: 53, prefmin: 9, prefmax: 28 } }
+    },
     { id: "tuna", name: "Tuna", category: "Protein", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 0.9, pricePerUnit: 1.2, displayOrder: 12 },
     { id: "capsicum", name: "Capsicum", category: "Vegetable", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 0.8, pricePerUnit: 0.3, displayOrder: 13 },
     { id: "mushroom", name: "Mushroom", category: "Vegetable", unit: "g", available: true, customerSelectable: true, quantityAdjustable: false, autoIncluded: false, min: 0, max: 0, default: 0, baseRatePerKg: 0.7, pricePerUnit: 0.4, displayOrder: 14 }
@@ -542,6 +703,68 @@
     let qty = dog.weightKg * ingredient.baseRatePerKg * breed.sizeFactor * ageF * actF;
     qty = Math.round(qty / 5) * 5;
     return Math.max(qty, 0);
+  }
+  function sizeCategoryFromWeight(weightKg) {
+    if (weightKg < 10) return "Small";
+    if (weightKg < 25) return "Medium";
+    if (weightKg < 40) return "Large";
+    return "Giant";
+  }
+  function computeTargetKcal(dog) {
+    const rer = 70 * Math.pow(dog.weightKg, 0.75);
+    const cat = ageCategory(dog.ageMonths);
+    let mult;
+    if (cat === "puppy") {
+      mult = dog.ageMonths < 4 ? 3 : 2;
+    } else {
+      let base = 1.8;
+      if (dog.activity === "low") base -= 0.3;
+      if (dog.activity === "high") base += 0.3;
+      mult = Math.max(1, base);
+    }
+    return rer * mult;
+  }
+  function rebalanceToCalorieTarget(items, qtyMap, sizeCat, targetKcal, anchorId) {
+    const next = { ...qtyMap };
+    const kcalOf = (item) => item.kcal_per_100g * ((next[item.id] || 0) / 100);
+    const fixed = /* @__PURE__ */ new Set();
+    if (anchorId) fixed.add(anchorId);
+    let fixedKcal = 0;
+    items.forEach((item) => {
+      if (fixed.has(item.id)) fixedKcal += kcalOf(item);
+    });
+    let free = items.filter((item) => !fixed.has(item.id) && (next[item.id] || 0) > 0).map((item) => item.id);
+    const byId = {};
+    items.forEach((item) => {
+      byId[item.id] = item;
+    });
+    let clampedKcal = 0;
+    for (let iter = 0; iter < 30 && free.length > 0; iter++) {
+      const remaining = targetKcal - fixedKcal - clampedKcal;
+      let currentKcal = 0;
+      free.forEach((id) => {
+        currentKcal += kcalOf(byId[id]);
+      });
+      if (currentKcal <= 0) break;
+      const scale = remaining / currentKcal;
+      const stillFree = [];
+      free.forEach((id) => {
+        const range = byId[id].bySize[sizeCat];
+        const minG = range?.min ?? 0;
+        const maxG = range?.max ?? 1e9;
+        let newG = (next[id] || 0) * scale;
+        const hitMin = newG <= minG;
+        const hitMax = newG >= maxG;
+        if (hitMin) newG = minG;
+        if (hitMax) newG = maxG;
+        next[id] = newG;
+        if (hitMin || hitMax) clampedKcal += kcalOf(byId[id]);
+        else stillFree.push(id);
+      });
+      if (stillFree.length === free.length) break;
+      free = stillFree;
+    }
+    return next;
   }
   function nextServingWindow(config, orders) {
     const today = todayStr();
@@ -1480,6 +1703,8 @@
       });
       return m;
     });
+    const [sizeQty, setSizeQty] = useState({});
+    const sizeQtyInitedForDogRef = useRef(null);
     const [locationResolved, setLocationResolved] = useState(null);
     const [phoneResolved, setPhoneResolved] = useState({ ok: false });
     const cartIdRef = useRef(null);
@@ -1513,6 +1738,23 @@
     const dates = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i));
     const date = dates[dateIdx];
     useEffect(() => {
+      if (!dog) return;
+      if (sizeQtyInitedForDogRef.current === dog.id) return;
+      sizeQtyInitedForDogRef.current = dog.id;
+      const sizeCat = sizeCategoryFromWeight(dog.weightKg);
+      const sizeTieredSelected = ingredients.filter((i) => i.bySize && selected.has(i.id) && i.available);
+      if (sizeTieredSelected.length === 0) {
+        setSizeQty({});
+        return;
+      }
+      const targetKcal = computeTargetKcal(dogForCalc);
+      const initial = {};
+      sizeTieredSelected.forEach((i) => {
+        initial[i.id] = i.bySize[sizeCat]?.prefmin ?? 0;
+      });
+      setSizeQty(rebalanceToCalorieTarget(sizeTieredSelected, initial, sizeCat, targetKcal, null));
+    }, [dog?.id]);
+    useEffect(() => {
       if (restoredCartRef.current || !myCustomerId || !carts) return;
       const existing = carts.find((c) => c.customerId === myCustomerId && c.status !== "closed");
       if (existing) {
@@ -1530,6 +1772,10 @@
         }
         if (Array.isArray(existing.selectedIds)) setSelected(new Set(existing.selectedIds));
         if (existing.customQty) setCustomQty(existing.customQty);
+        if (existing.sizeQty) {
+          setSizeQty(existing.sizeQty);
+          sizeQtyInitedForDogRef.current = existing.dogId || null;
+        }
         if (existing.deliveryNote) setDeliveryNote(existing.deliveryNote);
         if (existing.leaveAtDoor) setLeaveAtDoor(true);
         if (Array.isArray(existing.uncheckedItemIds)) setUncheckedItems(new Set(existing.uncheckedItemIds));
@@ -1547,6 +1793,7 @@
         session,
         selectedIds: [...selected],
         customQty,
+        sizeQty,
         deliveryNote,
         leaveAtDoor,
         uncheckedItemIds: [...uncheckedItems],
@@ -1593,16 +1840,42 @@
     });
     const toggleIngredient = (id) => {
       const next = new Set(selected);
-      next.has(id) ? next.delete(id) : next.add(id);
+      const nowChecked = !next.has(id);
+      nowChecked ? next.add(id) : next.delete(id);
       setSelected(next);
+      const ing = ingredients.find((i) => i.id === id);
+      if (ing?.bySize && dog) {
+        const sizeCat = sizeCategoryFromWeight(dog.weightKg);
+        if (nowChecked) {
+          setSizeQty((prev) => ({ ...prev, [id]: ing.bySize[sizeCat]?.prefmin ?? 0 }));
+        } else {
+          setSizeQty((prev) => {
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
+          });
+        }
+      }
+    };
+    const handleSizeQtyChange = (id, newGrams) => {
+      if (!dog) return;
+      const sizeCat = sizeCategoryFromWeight(dog.weightKg);
+      const sizeTieredSelected = ingredients.filter((i) => i.bySize && selected.has(i.id) && i.available);
+      const ing = sizeTieredSelected.find((i) => i.id === id);
+      if (!ing) return;
+      const range = ing.bySize[sizeCat];
+      let clamped = Math.max(0, newGrams);
+      if (range?.max != null) clamped = Math.min(clamped, range.max);
+      const targetKcal = computeTargetKcal(dogForCalc);
+      setSizeQty((prev) => rebalanceToCalorieTarget(sizeTieredSelected, { ...prev, [id]: clamped }, sizeCat, targetKcal, id));
     };
     const preview = useMemo(() => {
       if (!dog) return [];
       return ingredients.filter((i) => selected.has(i.id) && i.available).sort((a, b) => a.displayOrder - b.displayOrder).map((i) => {
-        const qty = i.quantityAdjustable ? customQty[i.id] ?? i.default : calcAutoQty(i, dogForCalc, breeds, engine);
+        const qty = i.quantityAdjustable ? customQty[i.id] ?? i.default : i.bySize ? Math.round((sizeQty[i.id] ?? 0) * 10) / 10 : calcAutoQty(i, dogForCalc, breeds, engine);
         return { id: i.id, name: i.name, unit: i.unit, qty, pricePerUnit: i.pricePerUnit };
       });
-    }, [dog, dogForCalc, selected, customQty, ingredients, breeds, engine]);
+    }, [dog, dogForCalc, selected, customQty, sizeQty, ingredients, breeds, engine]);
     const foodTotal = preview.reduce((s, p) => s + p.qty * p.pricePerUnit, 0);
     const deliveryFee = locationResolved?.deliveryFee || 0;
     const subtotal = foodTotal + deliveryFee;
@@ -1780,11 +2053,19 @@
       return /* @__PURE__ */ React.createElement("button", { key, disabled, onClick: () => setSession(key), className: "session-card" + (isSelected ? " selected" : ""), style: { opacity: disabled ? 0.55 : 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" } }, fmtTime(sess.servingTime))), /* @__PURE__ */ React.createElement(BowlGauge, { used: count, capacity, size: 52 })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label)));
     }))), session && dog && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 } }, "Build ", dog.name, "'s meal"), /* @__PURE__ */ React.createElement(InfoNote, null, "Staples like chicken and rice are portioned automatically from ", dog.name, "'s weight, breed size, age and activity level, then billed by weight. Egg and other customizable extras are billed per unit you choose."), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: 2, marginTop: 14 } }, ingredients.filter((i) => i.available).sort((a, b) => a.displayOrder - b.displayOrder).map((ing) => {
       const isSel = selected.has(ing.id);
-      const qty = ing.quantityAdjustable ? customQty[ing.id] ?? ing.default : calcAutoQty(ing, dog, breeds, engine);
+      const qty = ing.quantityAdjustable ? customQty[ing.id] ?? ing.default : ing.bySize ? Math.round((sizeQty[ing.id] ?? 0) * 10) / 10 : calcAutoQty(ing, dog, breeds, engine);
       const subtotal2 = qty * ing.pricePerUnit;
-      return /* @__PURE__ */ React.createElement("div", { key: ing.id, className: "ingredient-row" }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: isSel, onChange: () => toggleIngredient(ing.id), style: { width: 17, height: 17, accentColor: "var(--leaf)", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-body)", fontSize: 14.5 } }, ing.name), ing.quantityAdjustable && /* @__PURE__ */ React.createElement(Pill, null, "Customizable")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, flexShrink: 0 } }, isSel ? /* @__PURE__ */ React.createElement(React.Fragment, null, ing.quantityAdjustable ? (() => {
+      const sizeCatForRow = dog ? sizeCategoryFromWeight(dog.weightKg) : null;
+      const sizeRangeForRow = ing.bySize && sizeCatForRow ? ing.bySize[sizeCatForRow] : null;
+      return /* @__PURE__ */ React.createElement("div", { key: ing.id, className: "ingredient-row" }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: isSel, onChange: () => toggleIngredient(ing.id), style: { width: 17, height: 17, accentColor: "var(--leaf)", flexShrink: 0 } }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-body)", fontSize: 14.5 } }, ing.name), ing.quantityAdjustable && /* @__PURE__ */ React.createElement(Pill, null, "Customizable"), ing.bySize && /* @__PURE__ */ React.createElement(Pill, null, "Adjustable")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, flexShrink: 0 } }, isSel ? /* @__PURE__ */ React.createElement(React.Fragment, null, ing.quantityAdjustable ? (() => {
         const step = ing.unit === "count" ? 1 : 5;
-        return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCustomQty({ ...customQty, [ing.id]: Math.max(ing.min, (customQty[ing.id] ?? ing.default) - step) }), className: "stepper-btn" }, /* @__PURE__ */ React.createElement(Minus, { size: 13 })), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontWeight: 700, width: 18, textAlign: "center" } }, customQty[ing.id] ?? ing.default), /* @__PURE__ */ React.createElement("button", { onClick: () => setCustomQty({ ...customQty, [ing.id]: Math.min(ing.max, (customQty[ing.id] ?? ing.default) + step) }), className: "stepper-btn" }, /* @__PURE__ */ React.createElement(Plus, { size: 13 })));
+        const sizedMin = sizeRangeForRow?.min ?? ing.min;
+        const sizedMax = sizeRangeForRow?.max ?? ing.max;
+        return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCustomQty({ ...customQty, [ing.id]: Math.max(sizedMin, (customQty[ing.id] ?? ing.default) - step) }), className: "stepper-btn" }, /* @__PURE__ */ React.createElement(Minus, { size: 13 })), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontWeight: 700, width: 18, textAlign: "center" } }, customQty[ing.id] ?? ing.default), /* @__PURE__ */ React.createElement("button", { onClick: () => setCustomQty({ ...customQty, [ing.id]: Math.min(sizedMax, (customQty[ing.id] ?? ing.default) + step) }), className: "stepper-btn" }, /* @__PURE__ */ React.createElement(Plus, { size: 13 })));
+      })() : ing.bySize ? (() => {
+        const step = 5;
+        const minG = sizeRangeForRow?.min ?? 0;
+        return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleSizeQtyChange(ing.id, Math.max(minG, (sizeQty[ing.id] ?? 0) - step)), className: "stepper-btn" }, /* @__PURE__ */ React.createElement(Minus, { size: 13 })), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontWeight: 700, width: 36, textAlign: "center" } }, qty, "g"), /* @__PURE__ */ React.createElement("button", { onClick: () => handleSizeQtyChange(ing.id, (sizeQty[ing.id] ?? 0) + step), className: "stepper-btn" }, /* @__PURE__ */ React.createElement(Plus, { size: 13 })));
       })() : /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700 } }, qty, " ", ing.unit), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", minWidth: 44, textAlign: "right" } }, rupee(subtotal2))) : /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--ring-strong)" } }, "\u2014")));
     })), (config.mealChecklist || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, display: "flex", flexDirection: "column", gap: 10 } }, config.mealChecklist.map((item) => {
       const checked = !uncheckedItems.has(item.id);
@@ -2105,7 +2386,16 @@
   }
   function AdminIngredients({ ingredients, setIngredients, logAudit }) {
     const [newIng, setNewIng] = useState({ name: "", category: "Other", unit: "g", quantityAdjustable: false, baseRatePerKg: 1, pricePer100g: 30, pricePerUnit: 5, min: 1, max: 3, default: 1 });
+    const [viewTier, setViewTier] = useState("Medium");
     const update = (id, patch) => setIngredients(ingredients.map((i) => i.id === id ? { ...i, ...patch } : i));
+    const updateSizeRule = (id, tier, field, value) => {
+      setIngredients(ingredients.map((i) => {
+        if (i.id !== id) return i;
+        const bySize = { ...i.bySize || {} };
+        bySize[tier] = { ...bySize[tier] || {}, [field]: value };
+        return { ...i, bySize };
+      }));
+    };
     const saveAll = async () => {
       await persist(K.ingredients, ingredients);
       logAudit("Updated ingredient catalog");
@@ -2142,7 +2432,11 @@
       logAudit(`Added ingredient "${entry.name}" to the catalog`);
       setNewIng({ name: "", category: "Other", unit: "g", quantityAdjustable: false, baseRatePerKg: 1, pricePer100g: 30, pricePerUnit: 5, min: 1, max: 3, default: 1 });
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Ingredients" }), /* @__PURE__ */ React.createElement(InfoNote, null, /* @__PURE__ */ React.createElement("b", null, "How a meal's price is calculated:"), " price = \u2211 (quantity of each selected ingredient \xD7 its price). Staple ingredients get their quantity from the ", /* @__PURE__ */ React.createElement("b", null, "rate"), " below \u2014 grams per kg of the dog's body weight, then adjusted for breed size, age and activity in the Rules tab. Customer-adjustable ingredients (like egg) are priced per unit the customer picks. Gram-based ingredients are priced here per 100\xA0g for convenience."), /* @__PURE__ */ React.createElement(Card, { style: { padding: 0, overflow: "hidden", marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 800 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "var(--surface-muted)", textAlign: "left" } }, ["Ingredient", "Available", "Selectable", "Adjustable", "Rate g/kg", "Min", "Max", "Default", "Price", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "9px 10px", fontFamily: "var(--font-mono)", fontSize: 10.5, textTransform: "uppercase", color: "var(--muted)", whiteSpace: "nowrap" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, ingredients.sort((a, b) => a.displayOrder - b.displayOrder).map((ing) => /* @__PURE__ */ React.createElement("tr", { key: ing.id, style: { borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontWeight: 600 } }, ing.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ing.available, onChange: (e) => update(ing.id, { available: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ing.customerSelectable, onChange: (e) => update(ing.id, { customerSelectable: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ing.quantityAdjustable, onChange: (e) => update(ing.id, { quantityAdjustable: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014") : /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", style: { ...inputStyle, width: 64, padding: "5px 7px" }, value: ing.baseRatePerKg, onChange: (e) => update(ing.id, { baseRatePerKg: Number(e.target.value) }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 52, padding: "5px 7px" }, value: ing.min, onChange: (e) => update(ing.id, { min: Number(e.target.value) }) }) : /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 52, padding: "5px 7px" }, value: ing.max, onChange: (e) => update(ing.id, { max: Number(e.target.value) }) }) : /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 52, padding: "5px 7px" }, value: ing.default, onChange: (e) => update(ing.id, { default: Number(e.target.value) }) }) : /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.unit === "g" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5 } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "1", style: { ...inputStyle, width: 70, padding: "5px 7px" }, value: Math.round(ing.pricePerUnit * 100 * 100) / 100, onChange: (e) => update(ing.id, { pricePerUnit: Number(e.target.value) / 100 }) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" } }, "/100g")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5 } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 60, padding: "5px 7px" }, value: ing.pricePerUnit, onChange: (e) => update(ing.id, { pricePerUnit: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" } }, "/unit"))), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => removeIng(ing.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 }))))))))), /* @__PURE__ */ React.createElement(Btn, { onClick: saveAll, style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(Save, { size: 15 }), " Save ingredient catalog"), /* @__PURE__ */ React.createElement(Card, { style: { marginTop: 20, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new ingredient"), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: newIng.name, onChange: (e) => setNewIng({ ...newIng, name: e.target.value }), placeholder: "Bone broth" }))), /* @__PURE__ */ React.createElement(Field, { label: "Category" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: newIng.category, onChange: (e) => setNewIng({ ...newIng, category: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Unit" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: newIng.unit, onChange: (e) => setNewIng({ ...newIng, unit: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "g" }, "Grams (auto-portioned)"), /* @__PURE__ */ React.createElement("option", { value: "count" }, "Count (customer-adjustable)"))), newIng.unit === "g" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Rate (g per kg body weight)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", style: inputStyle, value: newIng.baseRatePerKg, onChange: (e) => setNewIng({ ...newIng, baseRatePerKg: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Price per 100g (\u20B9)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "1", style: inputStyle, value: newIng.pricePer100g, onChange: (e) => setNewIng({ ...newIng, pricePer100g: e.target.value }) }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Price per unit (\u20B9)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: inputStyle, value: newIng.pricePerUnit, onChange: (e) => setNewIng({ ...newIng, pricePerUnit: e.target.value }) })), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2", style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement(Field, { label: "Min" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: newIng.min, onChange: (e) => setNewIng({ ...newIng, min: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Max" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: newIng.max, onChange: (e) => setNewIng({ ...newIng, max: e.target.value }) }))))), /* @__PURE__ */ React.createElement(Btn, { onClick: addIngredient, style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Add ingredient")));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Ingredients" }), /* @__PURE__ */ React.createElement(InfoNote, null, /* @__PURE__ */ React.createElement("b", null, "How a meal's price is calculated:"), " price = \u2211 (quantity of each selected ingredient \xD7 its price). Staple ingredients get their quantity from the ", /* @__PURE__ */ React.createElement("b", null, "rate"), " below \u2014 grams per kg of the dog's body weight, then adjusted for breed size, age and activity in the Rules tab. Customer-adjustable ingredients (like egg) are priced per unit the customer picks. Gram-based ingredients are priced here per 100\xA0g for convenience."), /* @__PURE__ */ React.createElement(Card, { style: { padding: 0, overflow: "hidden", marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 800 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "var(--surface-muted)", textAlign: "left" } }, ["Ingredient", "Available", "Selectable", "Adjustable", "Rate g/kg", "Min", "Max", "Default", "Price", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "9px 10px", fontFamily: "var(--font-mono)", fontSize: 10.5, textTransform: "uppercase", color: "var(--muted)", whiteSpace: "nowrap" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, ingredients.sort((a, b) => a.displayOrder - b.displayOrder).map((ing) => /* @__PURE__ */ React.createElement("tr", { key: ing.id, style: { borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontWeight: 600 } }, ing.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ing.available, onChange: (e) => update(ing.id, { available: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ing.customerSelectable, onChange: (e) => update(ing.id, { customerSelectable: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ing.quantityAdjustable, onChange: (e) => update(ing.id, { quantityAdjustable: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014") : /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", style: { ...inputStyle, width: 64, padding: "5px 7px" }, value: ing.baseRatePerKg, onChange: (e) => update(ing.id, { baseRatePerKg: Number(e.target.value) }) })), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 52, padding: "5px 7px" }, value: ing.min, onChange: (e) => update(ing.id, { min: Number(e.target.value) }) }) : /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 52, padding: "5px 7px" }, value: ing.max, onChange: (e) => update(ing.id, { max: Number(e.target.value) }) }) : /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.quantityAdjustable ? /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 52, padding: "5px 7px" }, value: ing.default, onChange: (e) => update(ing.id, { default: Number(e.target.value) }) }) : /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ring-strong)" } }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, ing.unit === "g" ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5 } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "1", style: { ...inputStyle, width: 70, padding: "5px 7px" }, value: Math.round(ing.pricePerUnit * 100 * 100) / 100, onChange: (e) => update(ing.id, { pricePerUnit: Number(e.target.value) / 100 }) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" } }, "/100g")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5 } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 60, padding: "5px 7px" }, value: ing.pricePerUnit, onChange: (e) => update(ing.id, { pricePerUnit: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" } }, "/unit"))), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => removeIng(ing.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 }))))))))), /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Size-tiered quantity rules", sub: "Controls the recommended starting amount and adjustable range for each ingredient, based on the dog's size. When a customer changes one ingredient, the others automatically adjust within these same ranges to keep the meal's total calories on target." }), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, ["Small", "Medium", "Large", "Giant"].map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setViewTier(t), className: "date-chip" + (viewTier === t ? " active" : "") }, t)))), /* @__PURE__ */ React.createElement(Card, { style: { padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 600 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "var(--surface-muted)", textAlign: "left" } }, ["Ingredient", `Min (${viewTier})`, `Max (${viewTier})`, "Preferred min", "Preferred max"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "9px 10px", fontFamily: "var(--font-mono)", fontSize: 10.5, textTransform: "uppercase", color: "var(--muted)", whiteSpace: "nowrap" } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, ingredients.filter((i) => i.bySize).sort((a, b) => a.displayOrder - b.displayOrder).map((ing) => {
+      const range = ing.bySize[viewTier] || {};
+      const unitLabel = ing.unit === "count" ? "" : "g";
+      return /* @__PURE__ */ React.createElement("tr", { key: ing.id + "_" + viewTier, style: { borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontWeight: 600 } }, ing.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.min, onBlur: (e) => updateSizeRule(ing.id, viewTier, "min", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.max, onBlur: (e) => updateSizeRule(ing.id, viewTier, "max", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.prefmin, onBlur: (e) => updateSizeRule(ing.id, viewTier, "prefmin", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.prefmax, onBlur: (e) => updateSizeRule(ing.id, viewTier, "prefmax", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)));
+    })))), ingredients.filter((i) => i.bySize).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { padding: 16, margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No ingredients have size-tiered rules yet.")), /* @__PURE__ */ React.createElement(Btn, { onClick: saveAll, style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(Save, { size: 15 }), " Save ingredient catalog"), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginTop: 10, marginBottom: 28, maxWidth: 560 } }, `This button saves everything above it, including the size-tiered rules -- edits to either section only take effect once you click it. "Preferred min" is what a customer's meal starts at when they first check this ingredient; "Min" and "Max" are the floor and ceiling it can be adjusted to.`), /* @__PURE__ */ React.createElement(Card, { style: { marginTop: 20, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new ingredient"), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: newIng.name, onChange: (e) => setNewIng({ ...newIng, name: e.target.value }), placeholder: "Bone broth" }))), /* @__PURE__ */ React.createElement(Field, { label: "Category" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: newIng.category, onChange: (e) => setNewIng({ ...newIng, category: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Unit" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: newIng.unit, onChange: (e) => setNewIng({ ...newIng, unit: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "g" }, "Grams (auto-portioned)"), /* @__PURE__ */ React.createElement("option", { value: "count" }, "Count (customer-adjustable)"))), newIng.unit === "g" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Rate (g per kg body weight)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", style: inputStyle, value: newIng.baseRatePerKg, onChange: (e) => setNewIng({ ...newIng, baseRatePerKg: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Price per 100g (\u20B9)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "1", style: inputStyle, value: newIng.pricePer100g, onChange: (e) => setNewIng({ ...newIng, pricePer100g: e.target.value }) }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Price per unit (\u20B9)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: inputStyle, value: newIng.pricePerUnit, onChange: (e) => setNewIng({ ...newIng, pricePerUnit: e.target.value }) })), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2", style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement(Field, { label: "Min" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: newIng.min, onChange: (e) => setNewIng({ ...newIng, min: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Max" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: newIng.max, onChange: (e) => setNewIng({ ...newIng, max: e.target.value }) }))))), /* @__PURE__ */ React.createElement(Btn, { onClick: addIngredient, style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Add ingredient")));
   }
   function AdminRules({ breeds, setBreeds, engine, setEngine, logAudit }) {
     const [newBreed, setNewBreed] = useState("");
