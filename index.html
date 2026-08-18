@@ -273,7 +273,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "2.6.0";
+  const APP_VERSION = "2.7.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -890,6 +890,22 @@
       }
     }
     return Promise.all(entries.map(([key, seed]) => loadOrSeed(key, seed)));
+  }
+  function migrateIngredientSizeRules(loaded, seed) {
+    const seedById = {};
+    seed.forEach((s) => {
+      seedById[s.id] = s;
+    });
+    let changed = false;
+    const merged = loaded.map((i) => {
+      const seedMatch = seedById[i.id];
+      if (seedMatch?.bySize && !i.bySize) {
+        changed = true;
+        return { ...i, bySize: seedMatch.bySize, ...seedMatch.gramsPerUnit != null && i.gramsPerUnit == null ? { gramsPerUnit: seedMatch.gramsPerUnit } : {} };
+      }
+      return i;
+    });
+    return { merged, changed };
   }
   function BowlGauge({ used, capacity, size = 72 }) {
     const pct = capacity > 0 ? Math.min(1, used / capacity) : 0;
@@ -3342,10 +3358,13 @@
           [K.addresses, []],
           [K.carts, []]
         ]);
+        const { merged: mergedIngredients, changed: ingredientsNeedMigration } = migrateIngredientSizeRules(ing, SEED_INGREDIENTS);
         setConfig(mergeConfig(c));
-        setIngredients(ing);
+        setIngredients(mergedIngredients);
         setBreeds(br);
         setEngine(en);
+        if (ingredientsNeedMigration) persist(K.ingredients, mergedIngredients).catch(() => {
+        });
         setDogs(dg);
         setOrders(ord);
         setCancelledSlots(cs);
