@@ -265,7 +265,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "3.6.0";
+  const APP_VERSION = "3.7.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1921,6 +1921,7 @@
     const [locationResolved, setLocationResolved] = useState(null);
     const [phoneResolved, setPhoneResolved] = useState({ ok: false });
     const cartIdRef = useRef(null);
+    const cartReachedPaymentRef = useRef(false);
     const finalizingRef = useRef(false);
     const restoredCartRef = useRef(false);
     const cartSaveTimerRef = useRef(null);
@@ -1973,6 +1974,7 @@
       const existing = carts.find((c) => c.customerId === myCustomerId && c.status !== "closed");
       if (existing) {
         cartIdRef.current = existing.id;
+        cartReachedPaymentRef.current = existing.status === "awaiting_payment";
         if (existing.dogId && myDogs.some((d) => d.id === existing.dogId)) setDogId(existing.dogId);
         if (existing.date) {
           const idx = dates.indexOf(existing.date);
@@ -1997,6 +1999,10 @@
       restoredCartRef.current = true;
     }, [myCustomerId, carts]);
     const saveCart = async (extra = {}) => {
+      if (cartReachedPaymentRef.current && extra.status !== "awaiting_payment") {
+        cartIdRef.current = null;
+        cartReachedPaymentRef.current = false;
+      }
       if (!cartIdRef.current) cartIdRef.current = uid("ord_");
       const entry = {
         id: cartIdRef.current,
@@ -2037,6 +2043,7 @@
       if (!alreadyPersisted) {
         await persist(K.carts, next);
       }
+      if (extra.status === "awaiting_payment") cartReachedPaymentRef.current = true;
       return true;
     };
     useEffect(() => {
@@ -2251,6 +2258,7 @@
         });
       }
       cartIdRef.current = null;
+      cartReachedPaymentRef.current = false;
       setPlaced(order);
       setStage("done");
     };
@@ -2302,7 +2310,7 @@
       } }, "Back"));
     }
     if (stage === "payment" && draftOrder) {
-      return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 440 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Customer", title: "Scan to pay" }), /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, marginBottom: 4 } }, rupee(draftOrder.totalPrice)), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 18 } }, draftOrder.dogSnapshot.name, "'s meal \xB7 ", fmtDateLabel(draftOrder.date), " \xB7 ", config.sessions[draftOrder.session].label, draftOrder.deliveryFee > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 incl. ", rupee(draftOrder.deliveryFee), " delivery"), draftOrder.gstAmount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 incl. ", rupee(draftOrder.gstAmount), " GST")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--muted)", marginBottom: 14 } }, "Order ID: ", /* @__PURE__ */ React.createElement(CopyableOrderId, { id: draftOrder.id })), config.upiId && /* @__PURE__ */ React.createElement("div", { className: "upi-app-buttons" }, /* @__PURE__ */ React.createElement("a", { href: buildUpiLink("gpay", config.upiId, config.serviceName, draftOrder), style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "accent" }, "Pay with Google Pay")), /* @__PURE__ */ React.createElement("a", { href: buildUpiLink("phonepe", config.upiId, config.serviceName, draftOrder), style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "accent" }, "Pay with PhonePe")), /* @__PURE__ */ React.createElement("a", { href: buildUpiLink("upi", config.upiId, config.serviceName, draftOrder), style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "outline" }, "Pay with another UPI app")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "var(--muted)", margin: "4px 0 10px" } }, "The amount is filled in automatically -- just confirm and pay in the app."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: 8, background: "var(--tone-warn-bg)", borderRadius: 12, padding: "10px 12px", textAlign: "left" } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 16, color: "var(--tone-warn-fg)", style: { flexShrink: 0, marginTop: 1 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--tone-warn-fg)", fontWeight: 600, lineHeight: 1.4 } }, `Important: after paying, come back to this screen and tap "I've completed the payment" below. Your order isn't created until you do.`))), /* @__PURE__ */ React.createElement("div", { className: config.upiId ? "qr-desktop-only" : "" }, /* @__PURE__ */ React.createElement("img", { src: qrCode, alt: "Payment QR code", style: { width: "100%", maxWidth: 260, borderRadius: 16, border: "1px solid var(--ring)", margin: "0 auto 16px" } }), config.upiId && /* @__PURE__ */ React.createElement("p", { className: "upi-qr-note", style: { fontSize: 12, color: "var(--muted)", marginTop: -10, marginBottom: 16 } }, "Or scan this code with any UPI app"), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "outline", onClick: () => downloadDataUrl(qrCode, "payment-qr-code.png"), style: { marginBottom: 10 } }, /* @__PURE__ */ React.createElement(Download, { size: 15 }), " Download QR code")), /* @__PURE__ */ React.createElement(Btn, { full: true, onClick: () => finalizeOrder(draftOrder, "PENDING_PAYMENT") }, "I've completed the payment"), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "ghost", style: { marginTop: 8 }, onClick: () => {
+      return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 440 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Customer", title: "Complete your payment" }), /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: 8, background: "var(--tone-warn-bg)", borderRadius: 12, padding: "10px 12px", textAlign: "left", marginBottom: 18 } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 16, color: "var(--tone-warn-fg)", style: { flexShrink: 0, marginTop: 1 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--tone-warn-fg)", fontWeight: 600, lineHeight: 1.4 } }, `Important: after paying, come back to this screen and tap "I've completed the payment" below. Your order isn't created until you do.`)), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, marginBottom: 4 } }, rupee(draftOrder.totalPrice)), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 18 } }, draftOrder.dogSnapshot.name, "'s meal \xB7 ", fmtDateLabel(draftOrder.date), " \xB7 ", config.sessions[draftOrder.session].label, draftOrder.deliveryFee > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 incl. ", rupee(draftOrder.deliveryFee), " delivery"), draftOrder.gstAmount > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 incl. ", rupee(draftOrder.gstAmount), " GST")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--muted)", marginBottom: 14 } }, "Order ID: ", /* @__PURE__ */ React.createElement(CopyableOrderId, { id: draftOrder.id })), config.upiId && /* @__PURE__ */ React.createElement("div", { className: "upi-app-buttons" }, /* @__PURE__ */ React.createElement("a", { href: buildUpiLink("gpay", config.upiId, config.serviceName, draftOrder), style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "accent" }, "Pay with Google Pay")), /* @__PURE__ */ React.createElement("a", { href: buildUpiLink("phonepe", config.upiId, config.serviceName, draftOrder), style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "accent" }, "Pay with PhonePe")), /* @__PURE__ */ React.createElement("a", { href: buildUpiLink("upi", config.upiId, config.serviceName, draftOrder), style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "outline" }, "Pay with another UPI app")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "var(--muted)", margin: "4px 0 10px" } }, "The amount is filled in automatically -- just confirm and pay in the app.")), /* @__PURE__ */ React.createElement("div", { className: config.upiId ? "qr-desktop-only" : "" }, /* @__PURE__ */ React.createElement("img", { src: qrCode, alt: "Payment QR code", style: { width: "100%", maxWidth: 260, borderRadius: 16, border: "1px solid var(--ring)", margin: "0 auto 16px" } }), config.upiId && /* @__PURE__ */ React.createElement("p", { className: "upi-qr-note", style: { fontSize: 12, color: "var(--muted)", marginTop: -10, marginBottom: 16 } }, "Or scan this code with any UPI app"), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "outline", onClick: () => downloadDataUrl(qrCode, "payment-qr-code.png"), style: { marginBottom: 10 } }, /* @__PURE__ */ React.createElement(Download, { size: 15 }), " Download QR code")), /* @__PURE__ */ React.createElement(Btn, { full: true, onClick: () => finalizeOrder(draftOrder, "PENDING_PAYMENT") }, "I've completed the payment"), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "ghost", style: { marginTop: 8 }, onClick: () => {
         setStage("build");
         setDraftOrder(null);
       } }, "Back"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "var(--muted)", marginTop: 14 } }, "Your order is held in your slot as soon as you confirm payment here \u2014 our team verifies it and moves your order to Confirmed.")));
