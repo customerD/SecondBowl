@@ -268,6 +268,16 @@
       if (data.error) throw new Error(data.error);
       return data;
     };
+    window.__settlePayable__ = async function(claimId) {
+      const res = await fetch(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "settlePayable", claimId, token: SHEETS_TOKEN })
+      });
+      const data = await parseSheetsResponse_(res);
+      if (data.error) throw new Error(data.error);
+      return data;
+    };
     window.__updatePartnerOrderStatus__ = async function(orderId, partnerId) {
       const res = await fetch(SHEETS_API_URL, {
         method: "POST",
@@ -342,7 +352,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "4.5.0";
+  const APP_VERSION = "4.6.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -426,6 +436,10 @@
   }
   async function arriveAtKitchenAtomic(date, session, kitchenId, partnerId) {
     if (window.__arriveAtKitchen__) return window.__arriveAtKitchen__(date, session, kitchenId, partnerId);
+    return null;
+  }
+  async function settlePayableAtomic(claimId) {
+    if (window.__settlePayable__) return window.__settlePayable__(claimId);
     return null;
   }
   async function updatePartnerOrderStatusAtomic(orderId, partnerId) {
@@ -2686,6 +2700,13 @@
     const [refreshing, setRefreshing] = useState(false);
     const [dateIdx, setDateIdx] = useState(0);
     const [showIngredientsNeeded, setShowIngredientsNeeded] = useState(false);
+    // "" means All areas. Scopes the stats/session breakdown below to one
+    // delivery area (kitchen) at a time -- slot capacity/state stays global
+    // (capacity is a whole-kitchen constraint, not per-area), only the
+    // counts and order groupings are filtered.
+    const [areaFilter, setAreaFilter] = useState("");
+    const activeAreas = locations.filter((l) => l.active);
+    const scopedOrders = areaFilter ? orders.filter((o) => o.kitchenId === areaFilter) : orders;
     useEffect(() => {
       (async () => {
         try {
@@ -2725,8 +2746,8 @@
       setRefreshing(false);
     };
     const date = todayStr();
-    const mealsToday = orders.filter((o) => o.date === date && o.status !== "CANCELLED");
-    const ordersCreatedToday = orders.filter((o) => toDateStr(new Date(o.createdAt)) === date);
+    const mealsToday = scopedOrders.filter((o) => o.date === date && o.status !== "CANCELLED");
+    const ordersCreatedToday = scopedOrders.filter((o) => toDateStr(new Date(o.createdAt)) === date);
     const revenueToday = mealsToday.filter((o) => STATUS_FLOW.includes(o.status)).reduce((s, o) => s + (o.totalPrice || 0), 0);
     const pendingDelivery = mealsToday.filter((o) => ["CONFIRMED", "PREPARING", "COOKED", "PACKED", "OUT_FOR_DELIVERY"].includes(o.status)).length;
     const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
@@ -2749,8 +2770,8 @@
     const dashDates = [todayStr(), addDays(todayStr(), 1), addDays(todayStr(), 2)];
     const dashDateLabels = ["Today", "Tomorrow", "Day after"];
     const selectedDate = dashDates[dateIdx];
-    const mealsForSelectedDate = orders.filter((o) => o.date === selectedDate && o.status !== "CANCELLED");
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Today's operations" }), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh")), config.orderingPaused && /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16, background: "var(--tone-bad-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 14 } }, /* @__PURE__ */ React.createElement(Ban, { size: 16, color: "var(--clay)" }), "Ordering is currently ", /* @__PURE__ */ React.createElement("b", null, "paused"), " \u2014 customers can't place new orders. Resume it from Settings.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 18 } }, stats.map((s) => /* @__PURE__ */ React.createElement(Card, { key: s.label, style: { padding: "16px 18px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 } }, s.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 } }, s.value)))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 8 } }, "All-time"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 18 } }, /* @__PURE__ */ React.createElement(Card, { style: { padding: "16px 18px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 } }, "Total customers"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 } }, totalCustomers === null ? "\u2026" : totalCustomers)), /* @__PURE__ */ React.createElement(Card, { style: { padding: "16px 18px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 } }, "Total revenue"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 } }, totalRevenue === null ? "\u2026" : rupee(totalRevenue)))), /* @__PURE__ */ React.createElement(
+    const mealsForSelectedDate = scopedOrders.filter((o) => o.date === selectedDate && o.status !== "CANCELLED");
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Today's operations", sub: areaFilter ? `Showing ${activeAreas.find((l) => l.id === areaFilter)?.name || "one area"} only.` : "Showing all delivery areas." }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("select", { style: { ...inputStyle, width: "auto", padding: "9px 12px" }, value: areaFilter, onChange: (e) => setAreaFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All delivery areas"), activeAreas.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.id }, l.name))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh"))), config.orderingPaused && /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16, background: "var(--tone-bad-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 14 } }, /* @__PURE__ */ React.createElement(Ban, { size: 16, color: "var(--clay)" }), "Ordering is currently ", /* @__PURE__ */ React.createElement("b", null, "paused"), " \u2014 customers can't place new orders. Resume it from Settings.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 18 } }, stats.map((s) => /* @__PURE__ */ React.createElement(Card, { key: s.label, style: { padding: "16px 18px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 } }, s.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 } }, s.value)))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 8 } }, "All-time"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 18 } }, /* @__PURE__ */ React.createElement(Card, { style: { padding: "16px 18px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 } }, "Total customers"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 } }, totalCustomers === null ? "\u2026" : totalCustomers)), /* @__PURE__ */ React.createElement(Card, { style: { padding: "16px 18px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 } }, "Total revenue"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 } }, totalRevenue === null ? "\u2026" : rupee(totalRevenue)))), /* @__PURE__ */ React.createElement(
       Card,
       {
         style: { marginBottom: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", cursor: "pointer" },
@@ -3340,6 +3361,8 @@
     const [dateIdx, setDateIdx] = useState(0);
     const [claimError, setClaimError] = useState(null);
     const [completedSummary, setCompletedSummary] = useState(null);
+    const [claimingBusy, setClaimingBusy] = useState(false);
+    const claimingRef = useRef(false);
     const handleRefresh = async () => {
       setRefreshing(true);
       await onRefresh?.();
@@ -3358,13 +3381,24 @@
     // not a list.
     const myClaim = sessionClaims.find((c) => c.status === "active" && c.partnerId === deliveryPartnerId) || null;
     const claimKitchen = async (date, session, kitchenId) => {
+      // Hard synchronous guard against double-submission -- set before any
+      // await, so a second tap (or a second event firing before React gets
+      // a chance to re-render the button as disabled/busy) is a flat no-op
+      // rather than racing a second claim request against the first.
+      if (claimingRef.current) return;
+      claimingRef.current = true;
+      setClaimingBusy(true);
       const claimId = `${date}_${session}_${kitchenId}`;
       setClaimError(null);
       try {
         const result = await claimSessionAtomic(date, session, kitchenId, deliveryPartnerId, deliveryName);
         if (result?.claim) {
+          // result.claim is already the authoritative, just-written record
+          // -- no need for a follow-up refresh() here, and deliberately
+          // avoiding one: an immediate re-fetch racing anything else in
+          // flight is exactly what caused a successful claim to sometimes
+          // look like it "didn't take" and bounced back to the picker.
           setSessionClaims((prev) => [...prev.filter((c) => c.id !== claimId), result.claim]);
-          await onRefresh?.();
           return;
         }
         // No Sheets backend configured -- fall back to a plain local
@@ -3403,15 +3437,20 @@
         } else {
           setClaimError(err?.message || "Couldn't claim this kitchen. Please try again.");
         }
+      } finally {
+        claimingRef.current = false;
+        setClaimingBusy(false);
       }
     };
     const releaseKitchen = async (claim) => {
       setClaimError(null);
-      // Optimistic local removal first -- so the button reflects the
-      // release immediately even if the network round trip is slow --
-      // followed by an authoritative refresh from the backend right after,
-      // so this can never look "stuck" showing a claim that's actually
-      // already gone (or vice versa).
+      // Optimistic local removal -- the release itself (releaseSessionAtomic)
+      // is the authoritative action; deliberately NOT following it with an
+      // unconditional refresh() on the success path, since a refresh racing
+      // its own write is exactly what made a successful release sometimes
+      // look like it silently failed (the stale read would restore the
+      // claim right after it was correctly removed). Only fall back to a
+      // resync if something actually went wrong.
       setSessionClaims((prev) => prev.filter((c) => c.id !== claim.id));
       try {
         const result = await releaseSessionAtomic(claim.date, claim.session, claim.kitchenId, deliveryPartnerId);
@@ -3419,11 +3458,12 @@
           const current = await loadOrSeed(K.sessionClaims, []);
           const next = current.filter((c) => c.id !== claim.id);
           await persist(K.sessionClaims, next);
+          setSessionClaims(next);
         }
       } catch (err) {
         setClaimError(err?.message || "Couldn't release this kitchen.");
+        await onRefresh?.();
       }
-      await onRefresh?.();
     };
     const arriveAtKitchen = async (claim) => {
       setClaimError(null);
@@ -3524,12 +3564,21 @@
         const readyCount = kitchenOrders.filter((o) => o.status === "PACKED" || o.status === "OUT_FOR_DELIVERY").length;
         const isReady = kitchenOrders.some((o) => KITCHEN_READY_STATUSES.includes(o.status));
         const payable = kitchenOrders.reduce((s, o) => s + (o.deliveryFee || 0), 0);
-        return /* @__PURE__ */ React.createElement("div", { key: kitchen.id, style: { border: "1px solid var(--ring)", borderRadius: 12, padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, kitchen.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "var(--muted)", marginTop: 2 } }, confirmedCount, " confirmed \xB7 ", readyCount, " ready to pick up \xB7 ", rupee(payable), " payable")), isTaken ? /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "Claimed by ", claim.partnerName) : !isReady ? /* @__PURE__ */ React.createElement(Pill, null, "Not ready yet") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !!myClaim, onClick: () => claimKitchen(selectedDate, key, kitchen.id), loadingText: "Claiming\u2026" }, /* @__PURE__ */ React.createElement(Truck, { size: 13 }), " Claim")));
+        // If everything here has already been delivered, this isn't "not
+        // ready" -- it's finished. Say so plainly instead of showing a
+        // payable amount and a confusing "not ready yet" pill for orders
+        // that are already done.
+        const allServed = kitchenOrders.length > 0 && kitchenOrders.every((o) => o.status === "DELIVERED");
+        const summaryText = allServed
+          ? `${kitchenOrders.length} order${kitchenOrders.length === 1 ? "" : "s"} served`
+          : /* @__PURE__ */ React.createElement(React.Fragment, null, confirmedCount, " confirmed \xB7 ", readyCount, " ready to pick up \xB7 ", rupee(payable), " payable");
+        return /* @__PURE__ */ React.createElement("div", { key: kitchen.id, style: { border: "1px solid var(--ring)", borderRadius: 12, padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, kitchen.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "var(--muted)", marginTop: 2 } }, summaryText)), allServed ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "Completed") : isTaken ? /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "Claimed by ", claim.partnerName) : !isReady ? /* @__PURE__ */ React.createElement(Pill, null, "Not ready yet") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !!myClaim || claimingBusy, onClick: () => claimKitchen(selectedDate, key, kitchen.id), loadingText: "Claiming\u2026" }, /* @__PURE__ */ React.createElement(Truck, { size: 13 }), " Claim")));
       })));
     })));
   }
   function AdminDelivery({ deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh }) {
     const [releasing, setReleasing] = useState(null);
+    const [settling, setSettling] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
     const handleRefresh = async () => {
       setRefreshing(true);
@@ -3538,9 +3587,12 @@
     };
     const forceRelease = async (claim) => {
       setReleasing(claim.id);
-      // Optimistic local removal, then an authoritative refresh right after
-      // -- same defensive pattern as the delivery partner's own release
-      // button, so this can never look like it silently failed.
+      // Optimistic local removal -- the release call itself is the
+      // authoritative action; deliberately not following a successful call
+      // with an unconditional refresh(), since a refresh racing its own
+      // write is exactly what could make a successful release look like it
+      // silently failed. Only fall back to a resync if something actually
+      // went wrong.
       setSessionClaims((prev) => prev.filter((c) => c.id !== claim.id));
       try {
         const result = await adminReleaseSessionAtomic(claim.date, claim.session, claim.kitchenId);
@@ -3548,24 +3600,51 @@
           const current = await loadOrSeed(K.sessionClaims, []);
           const next = current.filter((c) => c.id !== claim.id);
           await persist(K.sessionClaims, next);
+          setSessionClaims(next);
         }
         const kitchenName = locations.find((l) => l.id === claim.kitchenId)?.name || claim.kitchenId;
         logAudit(`Force-released ${fmtDateLabel(claim.date)} \xB7 ${claim.session} \xB7 ${kitchenName} from delivery partner ${claim.partnerName}`);
       } catch {
+        await onRefresh?.();
       }
-      await onRefresh?.();
       setReleasing(null);
+    };
+    const settlePayable = async (claim) => {
+      setSettling(claim.id);
+      try {
+        const result = await settlePayableAtomic(claim.id);
+        if (result?.claim) {
+          setSessionClaims((prev) => prev.map((c) => c.id === claim.id ? result.claim : c));
+        } else {
+          // No Sheets backend configured -- local-preview fallback.
+          const current = await loadOrSeed(K.sessionClaims, []);
+          const idx = current.findIndex((c) => c.id === claim.id);
+          if (idx !== -1) {
+            const next = current.slice();
+            next[idx] = { ...next[idx], settled: true, settledAt: Date.now() };
+            await persist(K.sessionClaims, next);
+            setSessionClaims(next);
+          }
+        }
+        logAudit(`Marked ${rupee(claim.payableAmount || 0)} as settled for ${claim.partnerName} (${fmtDateLabel(claim.date)} \xB7 ${claim.session})`);
+      } catch (err) {
+        await onRefresh?.();
+      }
+      setSettling(null);
     };
     const payableFor = (claim) => orders
       .filter((o) => o.date === claim.date && o.session === claim.session && o.kitchenId === claim.kitchenId && o.status !== "CANCELLED")
       .reduce((s, o) => s + (o.deliveryFee || 0), 0);
     const activeClaims = sessionClaims.filter((c) => c.status === "active");
     const completedClaims = [...sessionClaims.filter((c) => c.status === "completed")].sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    // Only unsettled amounts count as still "owed" -- once marked settled,
+    // it's already been paid out and shouldn't keep showing up as
+    // outstanding.
     const totalsByPartner = {};
-    completedClaims.forEach((c) => {
+    completedClaims.filter((c) => !c.settled).forEach((c) => {
       totalsByPartner[c.partnerName] = (totalsByPartner[c.partnerName] || 0) + (c.payableAmount || 0);
     });
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery partners", sub: "Kitchens here are just your Delivery Areas -- see who's currently handling which one, and force-release a stuck claim if needed." }), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Currently claimed kitchens"), activeClaims.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No kitchens are currently claimed by anyone.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 } }, activeClaims.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, fmtDateLabel(c.date), " \xB7 ", c.session, " \xB7 ", locations.find((l) => l.id === c.kitchenId)?.name || c.kitchenId), c.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "At the kitchen") : /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "On the way")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, "Held by ", c.partnerName, " \xB7 since ", fmtDateTime(c.claimedAt), " \xB7 ", rupee(payableFor(c)), " payable", c.arrivedAtKitchen && c.arrivedAt ? ` \xB7 arrived ${fmtDateTime(c.arrivedAt)}` : "")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => forceRelease(c), loadingText: "Releasing\u2026" }, "Force release")))), Object.keys(totalsByPartner).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Total payable per partner"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 } }, Object.entries(totalsByPartner).map(([name, total]) => /* @__PURE__ */ React.createElement(Pill, { key: name, tone: "good" }, name, ": ", rupee(total))))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Completed deliveries"), completedClaims.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No completed deliveries yet.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 } }, completedClaims.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, style: { padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, fmtDateLabel(c.date), " \xB7 ", c.session, " \xB7 ", locations.find((l) => l.id === c.kitchenId)?.name || c.kitchenId), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, c.partnerName, " \xB7 completed ", fmtDateTime(c.completedAt))), /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, rupee(c.payableAmount || 0), " payable")))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Delivery partner accounts"), deliveryPartners.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No delivery partners have signed up yet. Share the app link with them and have them use the Delivery sign-in on the header.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, deliveryPartners.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.id, style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, p.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, p.phone || "No phone on file", " \xB7 joined ", fmtDateTime(p.createdAt))))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery partners", sub: "Kitchens here are just your Delivery Areas -- see who's currently handling which one, and force-release a stuck claim if needed." }), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Currently claimed kitchens"), activeClaims.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No kitchens are currently claimed by anyone.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 } }, activeClaims.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, fmtDateLabel(c.date), " \xB7 ", c.session, " \xB7 ", locations.find((l) => l.id === c.kitchenId)?.name || c.kitchenId), c.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "At the kitchen") : /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "On the way")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, "Held by ", c.partnerName, " \xB7 since ", fmtDateTime(c.claimedAt), " \xB7 ", rupee(payableFor(c)), " payable", c.arrivedAtKitchen && c.arrivedAt ? ` \xB7 arrived ${fmtDateTime(c.arrivedAt)}` : "")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => forceRelease(c), loadingText: "Releasing\u2026" }, "Force release")))), Object.keys(totalsByPartner).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Outstanding payable per partner"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 } }, Object.entries(totalsByPartner).map(([name, total]) => /* @__PURE__ */ React.createElement(Pill, { key: name, tone: "good" }, name, ": ", rupee(total))))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Completed deliveries"), completedClaims.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No completed deliveries yet.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 } }, completedClaims.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, style: { padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, fmtDateLabel(c.date), " \xB7 ", c.session, " \xB7 ", locations.find((l) => l.id === c.kitchenId)?.name || c.kitchenId), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, c.partnerName, " \xB7 completed ", fmtDateTime(c.completedAt), c.settled && c.settledAt ? ` \xB7 settled ${fmtDateTime(c.settledAt)}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement(Pill, { tone: c.settled ? "default" : "good" }, rupee(c.payableAmount || 0), " payable"), c.settled ? /* @__PURE__ */ React.createElement(Pill, null, "Settled") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => settlePayable(c), loadingText: "Settling\u2026" }, "Mark as settled"))))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Delivery partner accounts"), deliveryPartners.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No delivery partners have signed up yet. Share the app link with them and have them use the Delivery sign-in on the header.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, deliveryPartners.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.id, style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, p.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, p.phone || "No phone on file", " \xB7 joined ", fmtDateTime(p.createdAt))))));
   }
   function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos, carts, setCarts, allAddresses, setAllAddresses, audit, logAudit }) {
     const [customers, setCustomers] = useState(null);
