@@ -362,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "5.1.0";
+  const APP_VERSION = "5.2.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1089,9 +1089,23 @@
     }
     const global = slotOverrides.find((o) => o.date === dateStr && o.session === sessionKey && !o.kitchenId);
     if (global) return global.capacity;
-    if (kitchenId && locations) {
-      const loc = locations.find((l) => l.id === kitchenId);
-      if (loc && typeof loc.orderLimit === "number" && loc.orderLimit > 0) return loc.orderLimit;
+    if (kitchenId) {
+      if (locations) {
+        const loc = locations.find((l) => l.id === kitchenId);
+        if (loc && typeof loc.orderLimit === "number" && loc.orderLimit > 0) return loc.orderLimit;
+      }
+      return config.sessions[sessionKey].capacity;
+    }
+    // "All areas" (no kitchenId, and no blanket override above): the
+    // combined capacity is the SUM of every active kitchen's own capacity
+    // -- its own override or orderLimit, falling back to the shared
+    // default -- not just the single shared default by itself, since each
+    // kitchen can have its own independent limit now.
+    if (locations) {
+      const activeLocs = locations.filter((l) => l.active);
+      if (activeLocs.length > 0) {
+        return activeLocs.reduce((sum, l) => sum + resolveCapacity(dateStr, sessionKey, config, slotOverrides, l.id, locations), 0);
+      }
     }
     return config.sessions[sessionKey].capacity;
   }
