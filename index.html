@@ -151,6 +151,16 @@
     }
   };
   if (SHEETS_ENABLED) {
+    window.__signupCustomer__ = async function(name, email, customerId, passwordHash) {
+      const res = await fetch(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "signup", name, email, customerId, passwordHash, token: SHEETS_TOKEN })
+      });
+      const data = await parseSheetsResponse_(res);
+      if (data.error) throw new Error(data.error);
+      return data;
+    };
     window.__sendPasswordResetEmail__ = async function(email) {
       const res = await fetch(SHEETS_API_URL, {
         method: "POST",
@@ -265,7 +275,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "3.7.0";
+  const APP_VERSION = "3.8.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -304,6 +314,10 @@
     rec.phone = phone;
     await window.storage.set(customerKey(name), JSON.stringify(rec), true);
     return true;
+  }
+  async function signupCustomer(name, email, customerId, passwordHash) {
+    if (window.__signupCustomer__) return window.__signupCustomer__(name, email, customerId, passwordHash);
+    return null;
   }
   async function requestPasswordReset(email) {
     if (window.__sendPasswordResetEmail__) return window.__sendPasswordResetEmail__(email);
@@ -2455,7 +2469,11 @@
         await resetPasswordWithToken(token, pw);
         setDone(true);
       } catch (err) {
-        setError(err?.message || "That reset link is invalid or has expired. Request a new one from the login screen.");
+        if (err?.message === "unauthorized") {
+          setError("Something's misconfigured on our end and we can't process this right now. Please contact us directly so we can help you get back into your account.");
+        } else {
+          setError(err?.message || "That reset link is invalid or has expired. Request a new one from the login screen.");
+        }
       }
       setBusy(false);
     };
@@ -2722,17 +2740,13 @@
       return /* @__PURE__ */ React.createElement("tr", { key: ing.id + "_" + viewTier, style: { borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontWeight: 600 } }, ing.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.min, onBlur: (e) => updateSizeRule(ing.id, viewTier, "min", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.max, onBlur: (e) => updateSizeRule(ing.id, viewTier, "max", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.prefmin, onBlur: (e) => updateSizeRule(ing.id, viewTier, "prefmin", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: { ...inputStyle, width: 70, padding: "5px 7px" }, defaultValue: range.prefmax, onBlur: (e) => updateSizeRule(ing.id, viewTier, "prefmax", Number(e.target.value)) }), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginLeft: 4 } }, unitLabel)));
     })))), ingredients.filter((i) => i.bySize).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { padding: 16, margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No ingredients have size-tiered rules yet.")), /* @__PURE__ */ React.createElement(Btn, { onClick: saveAll, style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(Save, { size: 15 }), " Save ingredient catalog"), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginTop: 10, marginBottom: 28, maxWidth: 560 } }, `This button saves everything above it, including the size-tiered rules -- edits to either section only take effect once you click it. "Preferred min" is what a customer's meal starts at when they first check this ingredient; "Min" and "Max" are the floor and ceiling it can be adjusted to.`), /* @__PURE__ */ React.createElement(Card, { style: { marginTop: 20, maxWidth: 560 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new ingredient"), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: newIng.name, onChange: (e) => setNewIng({ ...newIng, name: e.target.value }), placeholder: "Bone broth" }))), /* @__PURE__ */ React.createElement(Field, { label: "Category" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: newIng.category, onChange: (e) => setNewIng({ ...newIng, category: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Unit" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: newIng.unit, onChange: (e) => setNewIng({ ...newIng, unit: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "g" }, "Grams (auto-portioned)"), /* @__PURE__ */ React.createElement("option", { value: "count" }, "Count (customer-adjustable)"))), newIng.unit === "g" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Rate (g per kg body weight)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.1", style: inputStyle, value: newIng.baseRatePerKg, onChange: (e) => setNewIng({ ...newIng, baseRatePerKg: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Price per 100g (\u20B9)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "1", style: inputStyle, value: newIng.pricePer100g, onChange: (e) => setNewIng({ ...newIng, pricePer100g: e.target.value }) }))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Price per unit (\u20B9)" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.5", style: inputStyle, value: newIng.pricePerUnit, onChange: (e) => setNewIng({ ...newIng, pricePerUnit: e.target.value }) })), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2", style: { gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement(Field, { label: "Min" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: newIng.min, onChange: (e) => setNewIng({ ...newIng, min: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "Max" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: newIng.max, onChange: (e) => setNewIng({ ...newIng, max: e.target.value }) }))))), /* @__PURE__ */ React.createElement(Btn, { onClick: addIngredient, style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Add ingredient")));
   }
-  function AdminRules({ breeds, setBreeds, engine, setEngine, logAudit }) {
+  function AdminRules({ breeds, setBreeds, logAudit }) {
     const [newBreed, setNewBreed] = useState("");
     const saveBreeds = async (next) => {
       setBreeds(next);
       await persist(K.breeds, next);
     };
-    const saveEngine = async (next) => {
-      setEngine(next);
-      await persist(K.engine, next);
-    };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Nutrition & quantity rules" }), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Quantity = weight \xD7 ingredient rate \xD7 breed size \xD7 age \xD7 activity"), /* @__PURE__ */ React.createElement("div", { className: "form-grid-3" }, ["puppy", "adult", "senior"].map((k) => /* @__PURE__ */ React.createElement(Field, { key: k, label: `Age factor \u2014 ${k}` }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.05", style: inputStyle, value: engine.ageFactors[k], onChange: (e) => saveEngine({ ...engine, ageFactors: { ...engine.ageFactors, [k]: Number(e.target.value) } }) }))), ["low", "medium", "high"].map((k) => /* @__PURE__ */ React.createElement(Field, { key: k, label: `Activity factor \u2014 ${k}` }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "0.05", style: inputStyle, value: engine.activityFactors[k], onChange: (e) => saveEngine({ ...engine, activityFactors: { ...engine.activityFactors, [k]: Number(e.target.value) } }) })))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", marginTop: 10 } }, "Puppy < 12 months \xB7 Adult 12\u201384 months \xB7 Senior > 84 months. Saved instantly.")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Breed size factors"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, breeds.map((b, i) => /* @__PURE__ */ React.createElement("div", { key: b.name, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: b.available, onChange: (e) => {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Breeds" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Breed size factors"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, breeds.map((b, i) => /* @__PURE__ */ React.createElement("div", { key: b.name, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: b.available, onChange: (e) => {
       const next = [...breeds];
       next[i] = { ...b, available: e.target.checked };
       saveBreeds(next);
@@ -3207,6 +3221,13 @@
     const [clearDone, setClearDone] = useState(false);
     const fileRef = useRef(null);
     const CLEAR_PHRASE = "DELETE EVERYTHING";
+    const completedOrderCount = orders.filter((o) => o.status === "DELIVERED" || o.status === "CANCELLED").length;
+    const clearCompletedOrders = async () => {
+      const next = orders.filter((o) => o.status !== "DELIVERED" && o.status !== "CANCELLED");
+      setOrders(next);
+      await persist(K.orders, next);
+      logAudit(`Removed ${completedOrderCount} delivered/cancelled order(s) from the Orders list -- every order still in progress was left untouched.`);
+    };
     const clearAllData = async () => {
       setClearing(true);
       setOrders([]);
@@ -3363,7 +3384,7 @@
       const orderCount = orders.filter((o) => o.customerName === c.name).length;
       const dogCount = dogs.filter((d) => d.owner === c.name).length;
       return /* @__PURE__ */ React.createElement("tr", { key: c.name, style: { borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 14px", fontWeight: 600 } }, c.name), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 14px", fontFamily: "var(--font-mono)", fontSize: 12 } }, new Date(c.createdAt).toLocaleDateString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 14px" } }, dogCount), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 14px" } }, orderCount));
-    })))), /* @__PURE__ */ React.createElement("p", { style: { padding: "10px 18px", fontSize: 11.5, color: "var(--muted)", margin: 0 } }, "Passwords are never included here or in any export \u2014 only the account name and when it was created.")), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Orders & audit log"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: exportOrdersCsv, disabled: !orders.length }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Export orders CSV"), /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: exportAuditCsv, disabled: !audit.length }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Export audit log CSV")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "var(--muted)", marginTop: 10 } }, 'Every order ever placed stays in the Orders tab \u2014 nothing is deleted automatically, so that list already includes older ("legacy") orders alongside new ones.')), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Full backup"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", marginBottom: 12 } }, "Downloads everything \u2014 orders, customers, ingredients, rules, delivery areas, settings, and the audit log \u2014 as one JSON file you can store or move to another browser."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: exportAllJson }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Export full backup"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => fileRef.current?.click() }, /* @__PURE__ */ React.createElement(Upload, { size: 13 }), " Import backup")), /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: "application/json", onChange: importAllJson, style: { display: "none" } }), importMsg && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--leaf)", marginTop: 10 } }, importMsg)), /* @__PURE__ */ React.createElement(Card, { style: { marginTop: 20, background: "var(--tone-bad-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 17, color: "var(--clay)" }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 } }, "Danger zone")), clearDone ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14 } }, "All order and customer data has been cleared.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, marginBottom: 12 } }, "Permanently deletes every order, order line item, dog, saved address, Community post/comment/like, profile photo, carted order, and customer account. Ingredients, delivery areas, settings, and the audit log are not affected. ", /* @__PURE__ */ React.createElement("b", null, "This cannot be undone"), ` -- use "Export full backup" above first if there's any chance you'll want this data back.`), /* @__PURE__ */ React.createElement(Field, { label: `Type "${CLEAR_PHRASE}" to enable the button below` }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: clearConfirmText, onChange: (e) => setClearConfirmText(e.target.value), placeholder: CLEAR_PHRASE })), /* @__PURE__ */ React.createElement(
+    })))), /* @__PURE__ */ React.createElement("p", { style: { padding: "10px 18px", fontSize: 11.5, color: "var(--muted)", margin: 0 } }, "Passwords are never included here or in any export \u2014 only the account name and when it was created.")), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Orders & audit log"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: exportOrdersCsv, disabled: !orders.length }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Export orders CSV"), /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: exportAuditCsv, disabled: !audit.length }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Export audit log CSV")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "var(--muted)", marginTop: 10 } }, 'Every order ever placed stays in the Orders tab \u2014 nothing is deleted automatically, so that list already includes older ("legacy") orders alongside new ones.')), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Full backup"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", marginBottom: 12 } }, "Downloads everything \u2014 orders, customers, ingredients, rules, delivery areas, settings, and the audit log \u2014 as one JSON file you can store or move to another browser."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: exportAllJson }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Export full backup"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => fileRef.current?.click() }, /* @__PURE__ */ React.createElement(Upload, { size: 13 }), " Import backup")), /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: "application/json", onChange: importAllJson, style: { display: "none" } }), importMsg && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--leaf)", marginTop: 10 } }, importMsg)), /* @__PURE__ */ React.createElement(Card, { style: { marginTop: 20 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "Clean up completed orders"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", marginBottom: 12 } }, "Removes only orders marked ", /* @__PURE__ */ React.createElement("b", null, "Delivered"), " or ", /* @__PURE__ */ React.createElement("b", null, "Cancelled"), " from the Orders list. Every order still in progress -- Awaiting Payment, Confirmed, Preparing, Cooked, Packed, or Out for Delivery -- is left exactly as it is."), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "outline", onClick: clearCompletedOrders, disabled: completedOrderCount === 0 }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 }), " Remove ", completedOrderCount, " delivered/cancelled order", completedOrderCount === 1 ? "" : "s")), /* @__PURE__ */ React.createElement(Card, { style: { marginTop: 20, background: "var(--tone-bad-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 17, color: "var(--clay)" }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 } }, "Danger zone")), clearDone ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14 } }, "All order and customer data has been cleared.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, marginBottom: 12 } }, "Permanently deletes every order, order line item, dog, saved address, Community post/comment/like, profile photo, carted order, and customer account. Ingredients, delivery areas, settings, and the audit log are not affected. ", /* @__PURE__ */ React.createElement("b", null, "This cannot be undone"), ` -- use "Export full backup" above first if there's any chance you'll want this data back.`), /* @__PURE__ */ React.createElement(Field, { label: `Type "${CLEAR_PHRASE}" to enable the button below` }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: clearConfirmText, onChange: (e) => setClearConfirmText(e.target.value), placeholder: CLEAR_PHRASE })), /* @__PURE__ */ React.createElement(
       Btn,
       {
         small: true,
@@ -3902,6 +3923,32 @@
       }
       setAuthBusy(true);
       setAuthError("");
+      const customerId = uid("cust_");
+      const passwordHash = simpleHash(authPw);
+      try {
+        const result = await signupCustomer(name, emailTrim, customerId, passwordHash);
+        if (result) {
+          setMyName(name);
+          window.storage.set("dfp:session", JSON.stringify({ name }), false).catch(() => {
+          });
+          setAuthOpen(false);
+          setAuthBusy(false);
+          setWelcome({ message: `Welcome, ${name}!`, sub: "Your account is all set up." });
+          return;
+        }
+      } catch (err) {
+        setAuthBusy(false);
+        if (err?.message === "name_taken") {
+          setAuthError("That name is already registered. Try logging in instead, or use a different name.");
+        } else if (err?.message === "email_taken") {
+          setAuthError("An account already exists with that email. Try logging in instead, or use a different email.");
+        } else if (err?.message === "unauthorized") {
+          setAuthError("Something's misconfigured on our end and we can't create your account right now. Please contact us directly, or try again shortly.");
+        } else {
+          setAuthError(err?.message || "Something went wrong creating your account. Please try again.");
+        }
+        return;
+      }
       try {
         const existing = await window.storage.get(customerKey(name), true);
         if (existing?.value) {
@@ -3911,7 +3958,7 @@
         }
       } catch {
       }
-      const data = { customerId: uid("cust_"), name, email: emailTrim, passwordHash: simpleHash(authPw), phone: "", createdAt: Date.now() };
+      const data = { customerId, name, email: emailTrim, passwordHash, phone: "", createdAt: Date.now() };
       await window.storage.set(customerKey(name), JSON.stringify(data), true);
       setMyName(name);
       window.storage.set("dfp:session", JSON.stringify({ name }), false).catch(() => {
@@ -4109,7 +4156,7 @@
         onOpenAuth: openAuth,
         markLocalEdit
       }
-    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, engine, setEngine, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
+    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
       AdminSchedule,
       {
         config,
