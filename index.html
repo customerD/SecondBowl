@@ -48,6 +48,34 @@
       throw new Error(`Backend returned a non-JSON response (HTTP ${res.status}): ${text.slice(0, 400)}`);
     }
   }
+  // Transient blips (a network hiccup, or the backend momentarily busy
+  // with someone else's write) shouldn't surface as "the connection broke"
+  // -- retry a couple of times with a short backoff before giving up. This
+  // also specifically retries a "busy_try_again" response, which the
+  // backend now returns instead of a raw error page when it can't get the
+  // write lock in time under load.
+  async function fetchSheetsJson_(url, options) {
+    const maxRetries = 2;
+    let lastErr;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await fetch(url, options);
+        const data = await parseSheetsResponse_(res);
+        if (data.error === "busy_try_again" && attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          continue;
+        }
+        return data;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          continue;
+        }
+      }
+    }
+    throw lastErr;
+  }
   const COLLECTION_SHEETS = {
     "dfp:orders": "Orders",
     "dfp:dogs": "Dogs",
@@ -72,8 +100,7 @@
   };
   async function sheetsGet_(key) {
     const url = `${SHEETS_API_URL}?action=get&key=${encodeURIComponent(key)}${SHEETS_TOKEN ? `&token=${encodeURIComponent(SHEETS_TOKEN)}` : ""}`;
-    const res = await fetch(url);
-    const data = await parseSheetsResponse_(res);
+    const data = await fetchSheetsJson_(url);
     if (data.error) throw new Error(data.error);
     return { key: data.key, value: data.value };
   }
@@ -82,35 +109,31 @@
     if (scalarKeys.length) params.set("keys", scalarKeys.join(","));
     if (collKeys.length) params.set("collKeys", collKeys.join(","));
     if (SHEETS_TOKEN) params.set("token", SHEETS_TOKEN);
-    const res = await fetch(`${SHEETS_API_URL}?${params.toString()}`);
-    const data = await parseSheetsResponse_(res);
+    const data = await fetchSheetsJson_(`${SHEETS_API_URL}?${params.toString()}`);
     if (data.error) throw new Error(data.error);
     return data;
   }
   async function sheetsSet_(key, value) {
-    const res = await fetch(SHEETS_API_URL, {
+    const data = await fetchSheetsJson_(SHEETS_API_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "set", key, value, token: SHEETS_TOKEN })
     });
-    const data = await parseSheetsResponse_(res);
     if (data.error) throw new Error(`Sheets write failed: ${data.error}`);
     return data;
   }
   async function sheetsDelete_(key) {
-    const res = await fetch(SHEETS_API_URL, {
+    const data = await fetchSheetsJson_(SHEETS_API_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "delete", key, token: SHEETS_TOKEN })
     });
-    const data = await parseSheetsResponse_(res);
     if (data.error) throw new Error(`Sheets delete failed: ${data.error}`);
     return data;
   }
   async function sheetsList_(prefix) {
     const url = `${SHEETS_API_URL}?action=list&prefix=${encodeURIComponent(prefix || "")}${SHEETS_TOKEN ? `&token=${encodeURIComponent(SHEETS_TOKEN)}` : ""}`;
-    const res = await fetch(url);
-    const data = await parseSheetsResponse_(res);
+    const data = await fetchSheetsJson_(url);
     if (data.error) throw new Error(data.error);
     return data;
   }
@@ -154,82 +177,74 @@
   };
   if (SHEETS_ENABLED) {
     window.__signupCustomer__ = async function(name, email, customerId, passwordHash) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "signup", name, email, customerId, passwordHash, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__sendPasswordResetEmail__ = async function(email) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "requestReset", email, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__resetPasswordWithToken__ = async function(resetToken, newPassword) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "resetPassword", resetToken, passwordHash: simpleHash(newPassword), token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__sendPaymentReminderEmail__ = async function(details) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "sendPaymentReminder", ...details, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__placeOrderAtomic__ = async function(order, capacity) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "placeOrder", order: JSON.stringify(order), capacity, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__reserveSlot__ = async function(cart, capacity) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "reserveSlot", cart: JSON.stringify(cart), capacity, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__signupPartner__ = async function(name, phone, partnerId, passwordHash) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "signupPartner", name, phone, partnerId, passwordHash, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__claimSession__ = async function(date, session, kitchenId, partnerId, partnerName) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "claimSession", date, session, kitchenId, partnerId, partnerName, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) {
         const err = new Error(data.error);
         if (data.partnerName) err.partnerName = data.partnerName;
@@ -239,52 +254,47 @@
       return data;
     };
     window.__releaseSession__ = async function(date, session, kitchenId, partnerId) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "releaseSession", date, session, kitchenId, partnerId, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__adminReleaseSession__ = async function(date, session, kitchenId) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "adminReleaseSession", date, session, kitchenId, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__arriveAtKitchen__ = async function(date, session, kitchenId, partnerId) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "arriveAtKitchen", date, session, kitchenId, partnerId, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__settlePayable__ = async function(claimId) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "settlePayable", claimId, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
     window.__updatePartnerOrderStatus__ = async function(orderId, partnerId) {
-      const res = await fetch(SHEETS_API_URL, {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action: "updatePartnerOrderStatus", orderId, partnerId, token: SHEETS_TOKEN })
       });
-      const data = await parseSheetsResponse_(res);
       if (data.error) throw new Error(data.error);
       return data;
     };
@@ -352,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "4.6.0";
+  const APP_VERSION = "4.7.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1021,18 +1031,30 @@
     }
     return next;
   }
+  // Walks forward chronologically (today's morning, today's evening,
+  // tomorrow's morning, ...) and returns the first slot that still needs
+  // attention: one with unfinished orders, or -- if it has no orders yet --
+  // the next slot whose serving time hasn't passed. A slot whose orders
+  // are ALL delivered is fully done and gets skipped entirely, regardless
+  // of whether its serving time has technically arrived yet (an early
+  // delivery shouldn't make the dashboard keep pointing back at a session
+  // that's already finished).
   function nextServingWindow(config, orders) {
     const today = todayStr();
-    const relevantDates = [...new Set((orders || []).map((o) => o.date))].filter((d) => d <= today).sort();
-    for (const date of relevantDates) {
-      for (const key of ["morning", "evening"]) {
-        const unfinished = (orders || []).some((o) => o.date === date && o.session === key && !["DELIVERED", "CANCELLED"].includes(o.status));
-        if (unfinished) return { date, session: key };
-      }
-    }
     const nowM = nowMin();
-    for (const key of ["morning", "evening"]) {
-      if (timeToMin(config.sessions[key].servingTime) >= nowM) return { date: today, session: key };
+    for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
+      const date = addDays(today, dayOffset);
+      for (const key of ["morning", "evening"]) {
+        const slotOrders = (orders || []).filter((o) => o.date === date && o.session === key && o.status !== "CANCELLED");
+        if (slotOrders.length > 0) {
+          const allDelivered = slotOrders.every((o) => o.status === "DELIVERED");
+          if (!allDelivered) return { date, session: key };
+          continue;
+        }
+        if (dayOffset > 0 || timeToMin(config.sessions[key].servingTime) >= nowM) {
+          return { date, session: key };
+        }
+      }
     }
     return { date: addDays(today, 1), session: "morning" };
   }
@@ -2752,8 +2774,8 @@
     const pendingDelivery = mealsToday.filter((o) => ["CONFIRMED", "PREPARING", "COOKED", "PACKED", "OUT_FOR_DELIVERY"].includes(o.status)).length;
     const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
     const eveningMeals = mealsToday.filter((o) => o.session === "evening").length;
-    const next = nextServingWindow(config, orders);
-    const nextCount = slotCount(next.date, next.session, orders);
+    const next = nextServingWindow(config, scopedOrders);
+    const nextCount = slotCount(next.date, next.session, scopedOrders);
     const activeToday = mealsToday;
     const counts = {};
     DASHBOARD_STATUSES.forEach((s) => counts[s] = activeToday.filter((o) => o.status === s).length);
@@ -2775,7 +2797,7 @@
       Card,
       {
         style: { marginBottom: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", cursor: "pointer" },
-        onClick: () => onGoToOrders?.(next.date, next.session)
+        onClick: () => onGoToOrders?.(next.date, next.session, areaFilter)
       },
       /* @__PURE__ */ React.createElement("div", { style: { background: "var(--leaf)", borderRadius: 10, padding: 9, display: "flex" } }, /* @__PURE__ */ React.createElement(Clock, { size: 17, color: "#fff" })),
       /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase" } }, "Next up to be served"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, fmtDateLabel(next.date), " \xB7 ", config.sessions[next.session].label, " at ", fmtTime(config.sessions[next.session].servingTime))),
@@ -2784,11 +2806,11 @@
         e.stopPropagation();
         setShowIngredientsNeeded(true);
       }, style: { background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: "var(--turmeric)", fontFamily: "var(--font-mono)", padding: 0 } }, "Ingredients needed"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" } }, "View orders \u2192"))
-    ), showIngredientsNeeded && /* @__PURE__ */ React.createElement(IngredientsNeededModal, { date: next.date, session: next.session, orders, config, onClose: () => setShowIngredientsNeeded(false) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid", style: { marginBottom: 18 } }, ["morning", "evening"].map((key) => {
+    ), showIngredientsNeeded && /* @__PURE__ */ React.createElement(IngredientsNeededModal, { date: next.date, session: next.session, orders: scopedOrders, config, onClose: () => setShowIngredientsNeeded(false) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid", style: { marginBottom: 18 } }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
       const capacity = resolveCapacity(selectedDate, key, config, slotOverrides);
-      const count = slotCount(selectedDate, key, orders);
-      const st = sessionState(selectedDate, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+      const count = slotCount(selectedDate, key, scopedOrders);
+      const st = sessionState(selectedDate, key, config, scopedOrders, cancelledSlots, forceOpenSlots, slotOverrides);
       const outForDelivery = mealsForSelectedDate.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
       const groups = {};
       outForDelivery.forEach((o) => {
@@ -3176,7 +3198,7 @@
       return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17, marginBottom: 12 } }, sess.label, " session"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Serving time" }, /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle, value: sess.servingTime, onChange: (e) => update(key, { servingTime: e.target.value }), onBlur: commitConfig })), /* @__PURE__ */ React.createElement(Field, { label: "Orders close at" }, /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle, value: sess.closeTime, onChange: (e) => update(key, { closeTime: e.target.value }), onBlur: commitConfig })), /* @__PURE__ */ React.createElement(Field, { label: "Default capacity (orders)" }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: sess.capacity, onChange: (e) => update(key, { capacity: Number(e.target.value) }), onBlur: commitConfig }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, "Today's status: ", /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label)), isCancelled ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => uncancelToday(key) }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reinstate today's session") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => cancelToday(key) }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Cancel today's session"), !isCancelled && (isForced ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => undoForceOpen(key) }, /* @__PURE__ */ React.createElement(Clock, { size: 13 }), " Revert to scheduled hours") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => forceOpenToday(key) }, /* @__PURE__ */ React.createElement(Unlock, { size: 13 }), " Open this slot now"))));
     })), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 16, marginBottom: 28, maxWidth: 560 } }, `Every field above saves itself automatically (as soon as you click away from it, or immediately for toggles) \u2014 there's nothing separate to save. Reducing capacity below the number of orders already placed will never cancel those confirmed orders \u2014 it only blocks new ones. "Open this slot now" overrides today's close time so customers can keep ordering past the scheduled cutoff, until it's full or you revert it.`), /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Future dates & slots", sub: "Override capacity, or cancel / force-open, for any specific date instead of just today. Customers can currently book up to 14 days ahead." }), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 460 } }, /* @__PURE__ */ React.createElement("div", { className: "form-grid-2", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement(Field, { label: "Date" }, /* @__PURE__ */ React.createElement("input", { type: "date", style: inputStyle, value: pickDate, min: todayStr(), onChange: (e) => setPickDate(e.target.value) })), /* @__PURE__ */ React.createElement(Field, { label: "Session" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: pickSession, onChange: (e) => setPickSession(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "morning" }, config.sessions.morning.label), /* @__PURE__ */ React.createElement("option", { value: "evening" }, config.sessions.evening.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5 } }, "Current status:"), /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[pickState].tone }, STATE_STYLE[pickState].label), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" } }, "Capacity: ", pickCapacity, " ", currentOverride ? "(custom)" : "(default)")), /* @__PURE__ */ React.createElement(Field, { label: `Set capacity for ${fmtDateLabel(pickDate)} \u2014 ${config.sessions[pickSession].label}` }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: capacityInput, onChange: (e) => setCapacityInput(e.target.value), placeholder: String(pickCapacity) }), /* @__PURE__ */ React.createElement(Btn, { onClick: setOverrideCapacity, style: { padding: "10px 20px" } }, "Set"))), currentOverride && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 8 }, onClick: clearOverrideCapacity }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reset to default capacity"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px dashed var(--ring-strong)" } }, pickIsCancelled ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: uncancelPickedDate }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reinstate this serving") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: cancelPickedDate }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Cancel this serving"), !pickIsCancelled && (pickIsForced ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: undoForceOpenPickedDate }, /* @__PURE__ */ React.createElement(Clock, { size: 13 }), " Revert to scheduled hours") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: forceOpenPickedDate }, /* @__PURE__ */ React.createElement(Unlock, { size: 13 }), " Force this slot open")))));
   }
-  function AdminOrders({ orders, setOrders, carts, setCarts, config, logAudit, initialFilter, onConsumeInitialFilter, onRefresh }) {
+  function AdminOrders({ orders, setOrders, carts, setCarts, config, sessionClaims, logAudit, initialFilter, onConsumeInitialFilter, onRefresh }) {
     const [openId, setOpenId] = useState(null);
     const [showFilters, setShowFilters] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -3198,7 +3220,7 @@
     });
     useEffect(() => {
       if (initialFilter) {
-        setFilters((f) => ({ ...f, date: initialFilter.date || "", session: initialFilter.session || "" }));
+        setFilters((f) => ({ ...f, date: initialFilter.date || "", session: initialFilter.session || "", location: initialFilter.location || "" }));
         setShowFilters(true);
         onConsumeInitialFilter?.();
       }
@@ -3349,7 +3371,13 @@
       const open = openId === o.id;
       const pending = o.status === "PENDING_PAYMENT";
       const cancelled = o.status === "CANCELLED";
-      return /* @__PURE__ */ React.createElement(Card, { key: o.id, style: { cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setOpenId(open ? null : o.id), style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, o.dogSnapshot.name, "'s meal \xB7 ", o.customerName, o.paymentMethod === "cod" && /* @__PURE__ */ React.createElement(Pill, { style: { marginLeft: 8 } }, "COD")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" } }, fmtDateLabel(o.date), " \xB7 ", config.sessions[o.session]?.label || o.session, " \xB7 ", rupee(o.totalPrice), " \xB7 ID: ", /* @__PURE__ */ React.createElement(CopyableOrderId, { id: o.id }))), /* @__PURE__ */ React.createElement(Pill, { tone: o.status === "CANCELLED" ? "bad" : o.status === "PENDING_PAYMENT" ? "warn" : o.status === "DELIVERED" ? "good" : "default" }, STATUS_LABEL[o.status])), open && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: "var(--muted)", marginBottom: 10 } }, "Placed ", fmtDateTime(o.createdAt), o.customerPhone && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement(CopyableText, { text: o.customerPhone, title: "Tap to copy phone number" }))), o.customerAddress && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("b", null, o.customerAddress.label), " \u2014 ", o.customerAddress.address), o.deliveryNote && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, marginBottom: 10, padding: "8px 10px", background: "var(--tone-warn-bg)", borderRadius: 10 } }, /* @__PURE__ */ React.createElement("b", null, "Additional request: ", o.deliveryNote)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 } }, (o.ingredients || []).map((ing) => /* @__PURE__ */ React.createElement("div", { key: ing.id, style: { display: "flex", justifyContent: "space-between", fontSize: 13.5 } }, /* @__PURE__ */ React.createElement("span", null, ing.name), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)" } }, ing.qty, " ", ing.unit)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, pending && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: () => updateStatus(o, "CONFIRMED") }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " Confirm payment"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => updateStatus(o, "CANCELLED") }, "Cancel order"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => sendReminder(o), loadingText: "Sending\u2026" }, /* @__PURE__ */ React.createElement(Mail, { size: 13 }), " Send payment reminder")), !pending && !cancelled && /* @__PURE__ */ React.createElement(React.Fragment, null, STATUS_FLOW.map((s) => /* @__PURE__ */ React.createElement(Btn, { key: s, small: true, variant: o.status === s ? "primary" : "outline", onClick: () => updateStatus(o, s), disabled: STATUS_FLOW.indexOf(s) < STATUS_FLOW.indexOf(o.status) }, STATUS_LABEL[s])), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => updateStatus(o, "CANCELLED") }, "Cancel")), cancelled && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => updateStatus(o, "PENDING_PAYMENT") }, "Reopen"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setViewingInvoice(o) }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Print invoice"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => copyTrackingLink(o), loadingText: "Copied!" }, /* @__PURE__ */ React.createElement(Link2, { size: 13 }), " Copy tracking link")), reminderResult && reminderResult.orderId === o.id && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, marginTop: 8, color: reminderResult.ok ? "var(--leaf)" : "var(--clay)" } }, reminderResult.message)));
+      return /* @__PURE__ */ React.createElement(Card, { key: o.id, style: { cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setOpenId(open ? null : o.id), style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, o.dogSnapshot.name, "'s meal \xB7 ", o.customerName, o.paymentMethod === "cod" && /* @__PURE__ */ React.createElement(Pill, { style: { marginLeft: 8 } }, "COD")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" } }, fmtDateLabel(o.date), " \xB7 ", config.sessions[o.session]?.label || o.session, " \xB7 ", rupee(o.totalPrice), " \xB7 ID: ", /* @__PURE__ */ React.createElement(CopyableOrderId, { id: o.id }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } }, (() => {
+        const claim = sessionClaims?.find((c) => c.status === "active" && c.date === o.date && c.session === o.session && c.kitchenId === o.kitchenId);
+        if (!claim) return null;
+        return claim.arrivedAtKitchen
+          ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "At the kitchen \xB7 ", claim.partnerName)
+          : /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "On the way \xB7 ", claim.partnerName);
+      })(), /* @__PURE__ */ React.createElement(Pill, { tone: o.status === "CANCELLED" ? "bad" : o.status === "PENDING_PAYMENT" ? "warn" : o.status === "DELIVERED" ? "good" : "default" }, STATUS_LABEL[o.status]))), open && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: "var(--muted)", marginBottom: 10 } }, "Placed ", fmtDateTime(o.createdAt), o.customerPhone && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement(CopyableText, { text: o.customerPhone, title: "Tap to copy phone number" }))), o.customerAddress && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("b", null, o.customerAddress.label), " \u2014 ", o.customerAddress.address), o.deliveryNote && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, marginBottom: 10, padding: "8px 10px", background: "var(--tone-warn-bg)", borderRadius: 10 } }, /* @__PURE__ */ React.createElement("b", null, "Additional request: ", o.deliveryNote)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 } }, (o.ingredients || []).map((ing) => /* @__PURE__ */ React.createElement("div", { key: ing.id, style: { display: "flex", justifyContent: "space-between", fontSize: 13.5 } }, /* @__PURE__ */ React.createElement("span", null, ing.name), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)" } }, ing.qty, " ", ing.unit)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, pending && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: () => updateStatus(o, "CONFIRMED") }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " Confirm payment"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => updateStatus(o, "CANCELLED") }, "Cancel order"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => sendReminder(o), loadingText: "Sending\u2026" }, /* @__PURE__ */ React.createElement(Mail, { size: 13 }), " Send payment reminder")), !pending && !cancelled && /* @__PURE__ */ React.createElement(React.Fragment, null, STATUS_FLOW.map((s) => /* @__PURE__ */ React.createElement(Btn, { key: s, small: true, variant: o.status === s ? "primary" : "outline", onClick: () => updateStatus(o, s), disabled: STATUS_FLOW.indexOf(s) < STATUS_FLOW.indexOf(o.status) }, STATUS_LABEL[s])), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => updateStatus(o, "CANCELLED") }, "Cancel")), cancelled && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => updateStatus(o, "PENDING_PAYMENT") }, "Reopen"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setViewingInvoice(o) }, /* @__PURE__ */ React.createElement(Download, { size: 13 }), " Print invoice"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => copyTrackingLink(o), loadingText: "Copied!" }, /* @__PURE__ */ React.createElement(Link2, { size: 13 }), " Copy tracking link")), reminderResult && reminderResult.orderId === o.id && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, marginTop: 8, color: reminderResult.ok ? "var(--leaf)" : "var(--clay)" } }, reminderResult.message)));
     })), autoPrintOrder && /* @__PURE__ */ React.createElement(SilentPrintTrigger, { order: autoPrintOrder, config, onDone: () => setAutoPrintOrder(null) }));
   }
   function DeliveryOrderRow({ order, onAdvance }) {
@@ -3444,6 +3472,14 @@
     };
     const releaseKitchen = async (claim) => {
       setClaimError(null);
+      // Guard client-side too so the partner gets an instant answer without
+      // a round trip -- the backend enforces the same rule (has_orders_out)
+      // regardless, so this is just a faster no-op in the common case.
+      const kitchenOrders = orders.filter((o) => o.date === claim.date && o.session === claim.session && o.kitchenId === claim.kitchenId && o.status !== "CANCELLED");
+      if (kitchenOrders.some((o) => o.status === "OUT_FOR_DELIVERY")) {
+        setClaimError("You can't release this kitchen while an order is still out for delivery -- mark it Delivered first.");
+        return;
+      }
       // Optimistic local removal -- the release itself (releaseSessionAtomic)
       // is the authoritative action; deliberately NOT following it with an
       // unconditional refresh() on the success path, since a refresh racing
@@ -3461,8 +3497,13 @@
           setSessionClaims(next);
         }
       } catch (err) {
-        setClaimError(err?.message || "Couldn't release this kitchen.");
-        await onRefresh?.();
+        // The backend rejected the release (e.g. an order went OUT_FOR_
+        // DELIVERY between our check above and this call actually landing)
+        // -- the optimistic removal was wrong in that case, so restore the
+        // claim rather than leaving the UI showing "released" when it's
+        // really still active.
+        setSessionClaims((prev) => prev.some((c) => c.id === claim.id) ? prev : [...prev, claim]);
+        setClaimError(err?.message === "has_orders_out" ? "You can't release this kitchen while an order is still out for delivery -- mark it Delivered first." : (err?.message || "Couldn't release this kitchen."));
       }
     };
     const arriveAtKitchen = async (claim) => {
@@ -3538,6 +3579,14 @@
     const header = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Delivery Partner", title: `Hi, ${deliveryName}`, sub: myClaim ? "You're currently handling one kitchen -- finish or release it before picking up another." : "Pick one kitchen to handle. Claiming opens up as soon as its orders are confirmed." }), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh"));
     const errorCard = claimError && /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0", background: "var(--tone-bad-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5 } }, claimError));
     const completedCard = completedSummary && /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0", background: "var(--tone-good-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, marginBottom: 4 } }, "Delivery complete \u{1F389}"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, marginBottom: 10 } }, "You've delivered everything for ", locations.find((l) => l.id === completedSummary.kitchenId)?.name || completedSummary.kitchenId, " \xB7 ", fmtDateLabel(completedSummary.date), " \xB7 ", config.sessions?.[completedSummary.session]?.label || completedSummary.session, ". You'll receive ", /* @__PURE__ */ React.createElement("b", null, rupee(completedSummary.payableAmount)), " for this delivery."), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setCompletedSummary(null) }, "Done"));
+    // A running total of everything this partner has earned, across every
+    // completed delivery -- split into what's already been settled by
+    // admin vs. what's still outstanding, so they always know where they
+    // stand without having to ask.
+    const myCompletedClaims = sessionClaims.filter((c) => c.status === "completed" && c.partnerId === deliveryPartnerId);
+    const myTotalEarned = myCompletedClaims.reduce((s, c) => s + (c.payableAmount || 0), 0);
+    const myOutstanding = myCompletedClaims.filter((c) => !c.settled).reduce((s, c) => s + (c.payableAmount || 0), 0);
+    const earningsCard = myCompletedClaims.length > 0 && /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 } }, "Your earnings"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 22 } }, rupee(myTotalEarned), " total \xB7 ", myCompletedClaims.length, " delivery", myCompletedClaims.length === 1 ? "" : "ies", " completed")), myOutstanding > 0 ? /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, rupee(myOutstanding), " awaiting payout") : /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "All settled"));
     if (myClaim) {
       const kitchen = locations.find((l) => l.id === myClaim.kitchenId);
       const kitchenOrders = orders.filter((o) => o.date === myClaim.date && o.session === myClaim.session && o.kitchenId === myClaim.kitchenId && o.status !== "CANCELLED");
@@ -3548,9 +3597,9 @@
       const payable = kitchenOrders.reduce((s, o) => s + (o.deliveryFee || 0), 0);
       const kitchenOrigin = kitchen ? { lat: kitchen.lat, lng: kitchen.lng } : null;
       const routeUrl = buildRouteUrl(deliverable, kitchenOrigin);
-      return /* @__PURE__ */ React.createElement("div", null, header, errorCard, /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 } }, kitchen?.name || myClaim.kitchenId), /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, rupee(payable), " payable")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 12 } }, fmtDateLabel(myClaim.date), " \xB7 ", config.sessions?.[myClaim.session]?.label || myClaim.session, " \xB7 ", kitchenOrders.length, " order", kitchenOrders.length === 1 ? "" : "s", preparingCount > 0 ? ` \xB7 ${preparingCount} still preparing` : "", deliveredCount > 0 ? ` \xB7 ${deliveredCount} delivered` : ""), !myClaim.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => arriveAtKitchen(myClaim), loadingText: "Notifying\u2026" }, /* @__PURE__ */ React.createElement(MapPin, { size: 13 }), " I've arrived at the kitchen") : deliverable.length > 0 ? /* @__PURE__ */ React.createElement("a", { href: routeUrl || void 0, target: "_blank", rel: "noopener noreferrer", style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !routeUrl }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " Round-trip route for ", deliverable.length, " stop", deliverable.length === 1 ? "" : "s")) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "Admin's been notified you're at the kitchen. Once orders are handed to you and marked Out for Delivery, they'll show up here with a route."), visibleOrders.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 14 } }, visibleOrders.map((o) => o.status === "OUT_FOR_DELIVERY" ? /* @__PURE__ */ React.createElement(DeliveryOrderRow, { key: o.id, order: o, onAdvance: advanceOrderStatus }) : /* @__PURE__ */ React.createElement(Card, { key: o.id, style: { padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14 } }, o.dogSnapshot.name, "'s meal \xB7 ", o.customerName), /* @__PURE__ */ React.createElement(Pill, { tone: "default" }, STATUS_LABEL[o.status])))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 14 }, onClick: () => releaseKitchen(myClaim), loadingText: "Releasing\u2026" }, "Release this kitchen")));
+      return /* @__PURE__ */ React.createElement("div", null, header, errorCard, earningsCard, /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 } }, kitchen?.name || myClaim.kitchenId), /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, rupee(payable), " payable")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 12 } }, fmtDateLabel(myClaim.date), " \xB7 ", config.sessions?.[myClaim.session]?.label || myClaim.session, " \xB7 ", kitchenOrders.length, " order", kitchenOrders.length === 1 ? "" : "s", preparingCount > 0 ? ` \xB7 ${preparingCount} still preparing` : "", deliveredCount > 0 ? ` \xB7 ${deliveredCount} delivered` : ""), !myClaim.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => arriveAtKitchen(myClaim), loadingText: "Notifying\u2026" }, /* @__PURE__ */ React.createElement(MapPin, { size: 13 }), " I've arrived at the kitchen") : deliverable.length > 0 ? /* @__PURE__ */ React.createElement("a", { href: routeUrl || void 0, target: "_blank", rel: "noopener noreferrer", style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !routeUrl }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " Round-trip route for ", deliverable.length, " stop", deliverable.length === 1 ? "" : "s")) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "Admin's been notified you're at the kitchen. Once orders are handed to you and marked Out for Delivery, they'll show up here with a route."), visibleOrders.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 14 } }, visibleOrders.map((o) => o.status === "OUT_FOR_DELIVERY" ? /* @__PURE__ */ React.createElement(DeliveryOrderRow, { key: o.id, order: o, onAdvance: advanceOrderStatus }) : /* @__PURE__ */ React.createElement(Card, { key: o.id, style: { padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14 } }, o.dogSnapshot.name, "'s meal \xB7 ", o.customerName), /* @__PURE__ */ React.createElement(Pill, { tone: "default" }, STATUS_LABEL[o.status])))), deliverable.length > 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--muted)", marginTop: 14, marginBottom: 0 } }, "You can't release this kitchen while an order is out for delivery -- mark it Delivered first.") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 14 }, onClick: () => releaseKitchen(myClaim), loadingText: "Releasing\u2026" }, "Release this kitchen")));
     }
-    return /* @__PURE__ */ React.createElement("div", null, header, errorCard, completedCard, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, margin: "14px 0" } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
+    return /* @__PURE__ */ React.createElement("div", null, header, errorCard, completedCard, earningsCard, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, margin: "14px 0" } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
       const sessionOrders = orders.filter((o) => o.date === selectedDate && o.session === key && o.status !== "CANCELLED");
       return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 12px" } }, "Serving ", fmtTime(sess.servingTime)), activeKitchens.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No delivery areas are set up yet -- ask admin to add one.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, activeKitchens.map((kitchen) => {
@@ -4654,8 +4703,9 @@
       setTab("myorders");
       refresh();
     };
-    const goToOrdersFiltered = (date, session) => {
-      setPendingOrderFilter({ date, session });
+    const goToOrdersFiltered = (date, session, kitchenId) => {
+      const locationName = kitchenId ? locations.find((l) => l.id === kitchenId)?.name || "" : "";
+      setPendingOrderFilter({ date, session, location: locationName });
       setTab("orders");
     };
     CURRENCY_SYMBOL = config.currencySymbol || "\u20B9";
@@ -4831,7 +4881,7 @@
         onOpenAuth: openAuth,
         markLocalEdit
       }
-    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
+    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
       AdminSchedule,
       {
         config,
