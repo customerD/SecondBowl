@@ -362,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "5.0.0";
+  const APP_VERSION = "5.1.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2860,7 +2860,17 @@
         const groupKey = o.locationName || "\u2014no area\u2014";
         (groups[groupKey] = groups[groupKey] || []).push(o);
       });
-      return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } }, /* @__PURE__ */ React.createElement(BowlGauge, { used: count, capacity }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 6px" } }, "Serving ", fmtTime(sess.servingTime)), /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label))), Object.keys(groups).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 } }, Object.entries(groups).map(([areaName, groupOrders]) => {
+      // Only relevant in "All delivery areas" mode -- breaks the single
+      // combined count above down by kitchen, so admin doesn't have to
+      // switch the area selector back and forth just to see each one's
+      // own booked/capacity at a glance.
+      const perAreaBreakdown = !areaFilter ? activeAreas.map((loc) => ({
+        loc,
+        areaCapacity: resolveCapacity(selectedDate, key, config, slotOverrides, loc.id, locations),
+        areaCount: slotCount(selectedDate, key, orders, loc.id, locations),
+        areaState: sessionState(selectedDate, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, loc.id, locations)
+      })) : [];
+      return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } }, /* @__PURE__ */ React.createElement(BowlGauge, { used: count, capacity }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 6px" } }, "Serving ", fmtTime(sess.servingTime)), /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label))), perAreaBreakdown.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 } }, perAreaBreakdown.map(({ loc, areaCapacity, areaCount, areaState }) => /* @__PURE__ */ React.createElement("div", { key: loc.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5 } }, loc.name), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" } }, areaCount, "/", areaCapacity), /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[areaState].tone }, STATE_STYLE[areaState].label))))), Object.keys(groups).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 } }, Object.entries(groups).map(([areaName, groupOrders]) => {
         const area = locations.find((l) => l.name === areaName);
         const origin = area ? { lat: area.lat, lng: area.lng } : null;
         const routeUrl = buildRouteUrl(groupOrders, origin);
