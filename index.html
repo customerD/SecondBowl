@@ -362,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "4.9.0";
+  const APP_VERSION = "5.0.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1102,7 +1102,7 @@
     if (isCancelled) return "CANCELLED";
     const sess = config.sessions[sessionKey];
     const capacity = resolveCapacity(dateStr, sessionKey, config, slotOverrides, kitchenId, locations);
-    const count = slotCount(dateStr, sessionKey, orders, kitchenId);
+    const count = slotCount(dateStr, sessionKey, orders, kitchenId, locations);
     if (count >= capacity) return "FULL";
     const forced = kitchenId
       ? forceOpenSlots.some((f) => f.date === dateStr && f.session === sessionKey && (f.kitchenId === kitchenId || !f.kitchenId))
@@ -1119,8 +1119,31 @@
     }
     return "OPEN";
   }
-  function slotCount(dateStr, sessionKey, orders, kitchenId) {
-    return orders.filter((o) => o.date === dateStr && o.session === sessionKey && o.status !== "CANCELLED" && (!kitchenId || o.kitchenId === kitchenId)).length;
+  // Matches an order to a kitchen (delivery area) even if the order's own
+  // stored kitchenId no longer corresponds to any currently-configured
+  // area -- e.g. because that area was deleted and re-added at some point,
+  // which generates a brand-new id and orphans every order snapshotted
+  // against the old one. Falls back to matching by the area's NAME
+  // (also stored on the order, as locationName), which is far less likely
+  // to have changed. Every place in this app that filters orders down to
+  // one kitchen goes through this rather than comparing kitchenId
+  // directly, so admin's dashboard, a customer's own slot availability,
+  // and a delivery partner's kitchen list all agree with each other even
+  // when an order's kitchenId has drifted.
+  function orderMatchesKitchen_(order, kitchenId, locations) {
+    if (!kitchenId) return true;
+    if (order.kitchenId === kitchenId) return true;
+    if (!locations) return false;
+    // If the order's own kitchenId still points at a real, currently-
+    // configured area, it's genuinely a different kitchen -- not a match,
+    // and not a candidate for the name fallback either.
+    const stillExists = locations.some((l) => l.id === order.kitchenId);
+    if (stillExists) return false;
+    const targetKitchen = locations.find((l) => l.id === kitchenId);
+    return !!(targetKitchen && order.locationName && targetKitchen.name && order.locationName === targetKitchen.name);
+  }
+  function slotCount(dateStr, sessionKey, orders, kitchenId, locations) {
+    return orders.filter((o) => o.date === dateStr && o.session === sessionKey && o.status !== "CANCELLED" && orderMatchesKitchen_(o, kitchenId, locations)).length;
   }
   function nextAvailableSlot(config, orders, cancelledSlots, forceOpenSlots, slotOverrides, kitchenId, locations) {
     const start = todayStr();
@@ -2511,7 +2534,7 @@
       const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations);
       const sess = config.sessions[key];
       const capacity = resolveCapacity(date, key, config, slotOverrides, locationResolved?.kitchenId, locations);
-      const count = slotCount(date, key, orders, locationResolved?.kitchenId);
+      const count = slotCount(date, key, orders, locationResolved?.kitchenId, locations);
       const disabled = st === "FULL" || st === "CLOSED" || st === "CANCELLED";
       const isSelected = session === key;
       return /* @__PURE__ */ React.createElement("button", { key, disabled, onClick: () => setSession(key), className: "session-card" + (isSelected ? " selected" : ""), style: { opacity: disabled ? 0.55 : 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" } }, fmtTime(sess.servingTime))), /* @__PURE__ */ React.createElement(BowlGauge, { used: count, capacity, size: 52 })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label)));
@@ -2748,7 +2771,7 @@
     // Schedule, Settings, and remembered across a refresh -- see the
     // adminAreaFilter state in App().
     const activeAreas = locations.filter((l) => l.active);
-    const scopedOrders = areaFilter ? orders.filter((o) => o.kitchenId === areaFilter) : orders;
+    const scopedOrders = areaFilter ? orders.filter((o) => orderMatchesKitchen_(o, areaFilter, locations)) : orders;
     useEffect(() => {
       (async () => {
         try {
@@ -2795,7 +2818,7 @@
     const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
     const eveningMeals = mealsToday.filter((o) => o.session === "evening").length;
     const next = nextServingWindow(config, scopedOrders);
-    const nextCount = slotCount(next.date, next.session, orders, areaFilter);
+    const nextCount = slotCount(next.date, next.session, orders, areaFilter, locations);
     const activeToday = mealsToday;
     const counts = {};
     DASHBOARD_STATUSES.forEach((s) => counts[s] = activeToday.filter((o) => o.status === s).length);
@@ -2829,7 +2852,7 @@
     ), showIngredientsNeeded && /* @__PURE__ */ React.createElement(IngredientsNeededModal, { date: next.date, session: next.session, orders: scopedOrders, config, onClose: () => setShowIngredientsNeeded(false) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid", style: { marginBottom: 18 } }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
       const capacity = resolveCapacity(selectedDate, key, config, slotOverrides, areaFilter, locations);
-      const count = slotCount(selectedDate, key, orders, areaFilter);
+      const count = slotCount(selectedDate, key, orders, areaFilter, locations);
       const st = sessionState(selectedDate, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
       const outForDelivery = mealsForSelectedDate.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
       const groups = {};
@@ -3039,7 +3062,7 @@
     };
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 4 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Schedule", sub: `Override capacity, cancel, or force-open any slot over the next 21 days for ${areaLabel}. Leave a slot alone and it just follows your default settings.` }), /* @__PURE__ */ React.createElement("select", { style: { ...inputStyle, width: "auto", padding: "9px 12px" }, value: areaFilter, onChange: (e) => setAreaFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All delivery areas"), activeAreas.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.id }, l.name)))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", borderBottom: "1px solid var(--ring-strong)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "8px 10px" } }, "Date"), ["morning", "evening"].map((s) => /* @__PURE__ */ React.createElement("th", { key: s, style: { padding: "8px 10px" } }, config.sessions[s].label)))), /* @__PURE__ */ React.createElement("tbody", null, days.map((date) => /* @__PURE__ */ React.createElement("tr", { key: date, style: { borderBottom: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontFamily: "var(--font-mono)", fontSize: 12.5, whiteSpace: "nowrap" } }, fmtDateLabel(date)), ["morning", "evening"].map((session) => {
       const capacity = resolveCapacity(date, session, config, slotOverrides, areaFilter, locations);
-      const count = slotCount(date, session, orders, areaFilter);
+      const count = slotCount(date, session, orders, areaFilter, locations);
       const st = sessionState(date, session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
       const draftKey = `${date}_${session}`;
       const hasOverride = slotOverrides.some((o) => o.date === date && o.session === session && (o.kitchenId || "") === areaFilter);
@@ -3233,7 +3256,7 @@
       return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17, marginBottom: 12 } }, sess.label, " session"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Serving time" }, /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle, value: sess.servingTime, onChange: (e) => update(key, { servingTime: e.target.value }), onBlur: commitConfig })), /* @__PURE__ */ React.createElement(Field, { label: "Orders close at" }, /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle, value: sess.closeTime, onChange: (e) => update(key, { closeTime: e.target.value }), onBlur: commitConfig })), /* @__PURE__ */ React.createElement(Field, { label: "Default capacity (orders)" }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: sess.capacity, onChange: (e) => update(key, { capacity: Number(e.target.value) }), onBlur: commitConfig }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, "Today's status: ", /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label)), isCancelled ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => uncancelToday(key) }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reinstate today's session") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => cancelToday(key) }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Cancel today's session"), !isCancelled && (isForced ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => undoForceOpen(key) }, /* @__PURE__ */ React.createElement(Clock, { size: 13 }), " Revert to scheduled hours") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => forceOpenToday(key) }, /* @__PURE__ */ React.createElement(Unlock, { size: 13 }), " Open this slot now"))));
     })), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 16, marginBottom: 28, maxWidth: 560 } }, `Every field above saves itself automatically (as soon as you click away from it, or immediately for toggles) \u2014 there's nothing separate to save. Reducing capacity below the number of orders already placed will never cancel those confirmed orders \u2014 it only blocks new ones. "Open this slot now" overrides today's close time so customers can keep ordering past the scheduled cutoff, until it's full or you revert it.`), /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Future dates & slots", sub: "Override capacity, or cancel / force-open, for any specific date instead of just today. Customers can currently book up to 14 days ahead." }), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 460 } }, /* @__PURE__ */ React.createElement("div", { className: "form-grid-2", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement(Field, { label: "Date" }, /* @__PURE__ */ React.createElement("input", { type: "date", style: inputStyle, value: pickDate, min: todayStr(), onChange: (e) => setPickDate(e.target.value) })), /* @__PURE__ */ React.createElement(Field, { label: "Session" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: pickSession, onChange: (e) => setPickSession(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "morning" }, config.sessions.morning.label), /* @__PURE__ */ React.createElement("option", { value: "evening" }, config.sessions.evening.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5 } }, "Current status:"), /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[pickState].tone }, STATE_STYLE[pickState].label), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" } }, "Capacity: ", pickCapacity, " ", currentOverride ? "(custom)" : "(default)")), /* @__PURE__ */ React.createElement(Field, { label: `Set capacity for ${fmtDateLabel(pickDate)} \u2014 ${config.sessions[pickSession].label}` }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: capacityInput, onChange: (e) => setCapacityInput(e.target.value), placeholder: String(pickCapacity) }), /* @__PURE__ */ React.createElement(Btn, { onClick: setOverrideCapacity, style: { padding: "10px 20px" } }, "Set"))), currentOverride && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 8 }, onClick: clearOverrideCapacity }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reset to default capacity"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px dashed var(--ring-strong)" } }, pickIsCancelled ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: uncancelPickedDate }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reinstate this serving") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: cancelPickedDate }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Cancel this serving"), !pickIsCancelled && (pickIsForced ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: undoForceOpenPickedDate }, /* @__PURE__ */ React.createElement(Clock, { size: 13 }), " Revert to scheduled hours") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: forceOpenPickedDate }, /* @__PURE__ */ React.createElement(Unlock, { size: 13 }), " Force this slot open")))));
   }
-  function AdminOrders({ orders, setOrders, carts, setCarts, config, sessionClaims, logAudit, initialFilter, onConsumeInitialFilter, onRefresh }) {
+  function AdminOrders({ orders, setOrders, carts, setCarts, config, sessionClaims, locations, logAudit, initialFilter, onConsumeInitialFilter, onRefresh }) {
     const [openId, setOpenId] = useState(null);
     const [showFilters, setShowFilters] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -3407,7 +3430,7 @@
       const pending = o.status === "PENDING_PAYMENT";
       const cancelled = o.status === "CANCELLED";
       return /* @__PURE__ */ React.createElement(Card, { key: o.id, style: { cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { onClick: () => setOpenId(open ? null : o.id), style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, o.dogSnapshot.name, "'s meal \xB7 ", o.customerName, o.paymentMethod === "cod" && /* @__PURE__ */ React.createElement(Pill, { style: { marginLeft: 8 } }, "COD")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" } }, fmtDateLabel(o.date), " \xB7 ", config.sessions[o.session]?.label || o.session, " \xB7 ", rupee(o.totalPrice), " \xB7 ID: ", /* @__PURE__ */ React.createElement(CopyableOrderId, { id: o.id }))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } }, (() => {
-        const claim = sessionClaims?.find((c) => c.status === "active" && c.date === o.date && c.session === o.session && c.kitchenId === o.kitchenId);
+        const claim = sessionClaims?.find((c) => c.status === "active" && c.date === o.date && c.session === o.session && orderMatchesKitchen_(o, c.kitchenId, locations));
         if (!claim) return null;
         return claim.arrivedAtKitchen
           ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "At the kitchen \xB7 ", claim.partnerName)
@@ -3479,7 +3502,7 @@
             setClaimError(`You're already handling ${fmtDateLabel(otherClaim.date)} \xB7 ${config.sessions?.[otherClaim.session]?.label || otherClaim.session}. Release that first.`);
             return;
           }
-          const kitchenOrders = orders.filter((o) => o.date === date && o.session === session && o.kitchenId === kitchenId && o.status !== "CANCELLED");
+          const kitchenOrders = orders.filter((o) => o.date === date && o.session === session && orderMatchesKitchen_(o, kitchenId, locations) && o.status !== "CANCELLED");
           if (!kitchenOrders.some((o) => KITCHEN_READY_STATUSES.includes(o.status))) {
             setClaimError("This kitchen isn't ready yet -- none of its orders have been confirmed.");
             return;
@@ -3624,7 +3647,7 @@
     const earningsCard = myCompletedClaims.length > 0 && /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 } }, "Your earnings"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 22 } }, rupee(myTotalEarned), " total \xB7 ", myCompletedClaims.length, " delivery", myCompletedClaims.length === 1 ? "" : "ies", " completed")), myOutstanding > 0 ? /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, rupee(myOutstanding), " awaiting payout") : /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "All settled"));
     if (myClaim) {
       const kitchen = locations.find((l) => l.id === myClaim.kitchenId);
-      const kitchenOrders = orders.filter((o) => o.date === myClaim.date && o.session === myClaim.session && o.kitchenId === myClaim.kitchenId && o.status !== "CANCELLED");
+      const kitchenOrders = orders.filter((o) => o.date === myClaim.date && o.session === myClaim.session && orderMatchesKitchen_(o, myClaim.kitchenId, locations) && o.status !== "CANCELLED");
       const visibleOrders = kitchenOrders.filter((o) => o.status !== "DELIVERED");
       const deliverable = kitchenOrders.filter((o) => o.status === "OUT_FOR_DELIVERY");
       const preparingCount = kitchenOrders.filter((o) => o.status === "CONFIRMED" || o.status === "PREPARING" || o.status === "COOKED" || o.status === "PACKED").length;
@@ -3639,7 +3662,7 @@
       const sessionOrders = orders.filter((o) => o.date === selectedDate && o.session === key && o.status !== "CANCELLED");
       const visibleKitchens = deliveryAreaPref ? activeKitchens.filter((k) => k.id === deliveryAreaPref) : activeKitchens;
       return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 12px" } }, "Serving ", fmtTime(sess.servingTime)), activeKitchens.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No delivery areas are set up yet -- ask admin to add one.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, visibleKitchens.map((kitchen) => {
-        const kitchenOrders = sessionOrders.filter((o) => o.kitchenId === kitchen.id);
+        const kitchenOrders = sessionOrders.filter((o) => orderMatchesKitchen_(o, kitchen.id, locations));
         // Match by the actual date/session/kitchen fields, never by
         // reconstructing an id string -- see the matching backend actions
         // in Code.gs for why.
@@ -4969,7 +4992,7 @@
         onOpenAuth: openAuth,
         markLocalEdit
       }
-    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
+    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, locations, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
       AdminSchedule,
       {
         config,
