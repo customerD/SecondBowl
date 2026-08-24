@@ -68,8 +68,7 @@
     "dfp:profilePhotos": "ProfilePhotos",
     "dfp:carts": "Carts",
     "dfp:deliveryPartners": "DeliveryPartners",
-    "dfp:sessionClaims": "SessionClaims",
-    "dfp:kitchens": "Kitchens"
+    "dfp:sessionClaims": "SessionClaims"
   };
   async function sheetsGet_(key) {
     const url = `${SHEETS_API_URL}?action=get&key=${encodeURIComponent(key)}${SHEETS_TOKEN ? `&token=${encodeURIComponent(SHEETS_TOKEN)}` : ""}`;
@@ -259,6 +258,16 @@
       if (data.error) throw new Error(data.error);
       return data;
     };
+    window.__arriveAtKitchen__ = async function(date, session, kitchenId, partnerId) {
+      const res = await fetch(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "arriveAtKitchen", date, session, kitchenId, partnerId, token: SHEETS_TOKEN })
+      });
+      const data = await parseSheetsResponse_(res);
+      if (data.error) throw new Error(data.error);
+      return data;
+    };
     window.__updatePartnerOrderStatus__ = async function(orderId, partnerId) {
       const res = await fetch(SHEETS_API_URL, {
         method: "POST",
@@ -333,7 +342,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "4.1.0";
+  const APP_VERSION = "4.2.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -357,8 +366,7 @@
     profilePhotos: "dfp:profilePhotos",
     carts: "dfp:carts",
     deliveryPartners: "dfp:deliveryPartners",
-    sessionClaims: "dfp:sessionClaims",
-    kitchens: "dfp:kitchens"
+    sessionClaims: "dfp:sessionClaims"
   };
   const customerKey = (name) => `dfp:customer:${name.trim().toLowerCase()}`;
   async function getCustomerRecord(name) {
@@ -414,6 +422,10 @@
   }
   async function adminReleaseSessionAtomic(date, session, kitchenId) {
     if (window.__adminReleaseSession__) return window.__adminReleaseSession__(date, session, kitchenId);
+    return null;
+  }
+  async function arriveAtKitchenAtomic(date, session, kitchenId, partnerId) {
+    if (window.__arriveAtKitchen__) return window.__arriveAtKitchen__(date, session, kitchenId, partnerId);
     return null;
   }
   async function updatePartnerOrderStatusAtomic(orderId, partnerId) {
@@ -875,16 +887,6 @@
     }
   };
   const SEED_LOCATIONS = [];
-  // Three starter kitchens, matching the three physical prep locations --
-  // admin can rename these, set their coordinates, add more, or deactivate
-  // any of them from the Delivery Partners admin tab. Every delivery area
-  // gets assigned to one of these (see AdminLocations), and every order
-  // inherits its kitchen from the area it was placed in.
-  const SEED_KITCHENS = [
-    { id: "kitchen_1", name: "Kitchen 1", lat: null, lng: null, active: true },
-    { id: "kitchen_2", name: "Kitchen 2", lat: null, lng: null, active: true },
-    { id: "kitchen_3", name: "Kitchen 3", lat: null, lng: null, active: true }
-  ];
   const SEED_FAQS = [
     { id: "faq_1", q: "How is my dog's meal quantity calculated?", a: "We start from your dog's weight, then adjust for breed size, age and activity level. Staples like chicken and rice are portioned automatically; egg is the one ingredient you control directly." },
     { id: "faq_2", q: "How do I pay for an order?", a: "After you build your dog's meal and place the order, you'll see a QR code to scan and pay. Once you confirm you've paid, our team verifies the payment and your order moves to Confirmed." },
@@ -1035,44 +1037,6 @@
       if (wp) url += `&waypoints=${encodeURIComponent(wp)}`;
     }
     return url;
-  }
-  // One-way version for a delivery partner's own route: starts from wherever
-  // they currently are (or, if no origin is supplied, Google Maps falls back
-  // to the device's current location once the link opens) and ends at the
-  // LAST stop -- unlike buildRouteUrl above, it never loops back to the
-  // start, since a delivery partner is heading out, not returning to base.
-  function buildOneWayRouteUrl(ordersWithAddress, origin) {
-    const pts = ordersWithAddress.filter((o) => o.customerAddress && typeof o.customerAddress.lat === "number");
-    if (pts.length === 0) return null;
-    const stops = pts.map((o) => `${o.customerAddress.lat},${o.customerAddress.lng}`);
-    const dest = stops[stops.length - 1];
-    const wp = stops.slice(0, -1).join("|");
-    let url = "https://www.google.com/maps/dir/?api=1&travelmode=driving";
-    if (origin) url += `&origin=${origin.lat},${origin.lng}`;
-    url += `&destination=${dest}`;
-    if (wp) url += `&waypoints=${encodeURIComponent(wp)}`;
-    return url;
-  }
-  // Best-effort current position with a short timeout -- if geolocation is
-  // unavailable, denied, or just slow, resolves to null rather than
-  // rejecting, so the caller can still open a route (Google Maps will use
-  // the device's own current location once the link opens instead).
-  function getCurrentPositionBestEffort_(timeoutMs = 4000) {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) { resolve(null); return; }
-      const timer = setTimeout(() => resolve(null), timeoutMs);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          clearTimeout(timer);
-          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        },
-        () => {
-          clearTimeout(timer);
-          resolve(null);
-        },
-        { timeout: timeoutMs }
-      );
-    });
   }
   function resolveCapacity(dateStr, sessionKey, config, slotOverrides) {
     const override = slotOverrides.find((o) => o.date === dateStr && o.session === sessionKey);
@@ -1958,7 +1922,10 @@
     const matchedTier = tiers.find((t) => best.dist <= t.maxKm);
     const maxRadius = tiers[tiers.length - 1].maxKm;
     const ok = !!matchedTier;
-    return { ok, distance: best.dist, name: best.loc.name, radius: maxRadius, deliveryFee: matchedTier ? matchedTier.fee : 0, kitchenId: best.loc.kitchenId || null };
+    // Delivery areas ARE the kitchens (set up by admin under Delivery Areas)
+    // -- there's no separate kitchen to assign, the matched area's own id
+    // doubles as its kitchen id for the delivery-partner flow.
+    return { ok, distance: best.dist, name: best.loc.name, radius: maxRadius, deliveryFee: matchedTier ? matchedTier.fee : 0, kitchenId: best.loc.id };
   }
   function AddressGate({ myName, myCustomerId, locations, resolved, onResolved, addresses, loaded, onAddressesChange }) {
     const [selectedId, setSelectedId] = useState(null);
@@ -2056,7 +2023,7 @@
     if (resolved?.ok && phone && !editing) return null;
     return /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ React.createElement(Phone, { size: 17, color: "var(--leaf)" }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, "Contact number")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", margin: "0 0 12px" } }, "We'll use this number to reach you about your order."), /* @__PURE__ */ React.createElement(Field, { label: "Phone number" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: draftPhone, onChange: (e) => setDraftPhone(e.target.value), placeholder: "9876543210" })), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 12 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: savePhone, loadingText: "Saving\u2026" }, "Save number"), phone && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setEditing(false) }, "Cancel")));
   }
-  function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhoneChange, dogs, ingredients, breeds, engine, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, kitchens, qrCode, initialDogId, setOrders, allAddresses, setAllAddresses, carts, setCarts, markLocalEdit, goToOrders }) {
+  function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhoneChange, dogs, ingredients, breeds, engine, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, qrCode, initialDogId, setOrders, allAddresses, setAllAddresses, carts, setCarts, markLocalEdit, goToOrders }) {
     const myDogs = dogs.filter((d) => d.owner === myName);
     const [dogId, setDogId] = useState(initialDogId || myDogs[0]?.id || "");
     const [dateIdx, setDateIdx] = useState(0);
@@ -2320,11 +2287,12 @@
         foodTotal: Math.round(foodTotal),
         deliveryFee: Math.round(deliveryFee),
         locationName: locationResolved?.name || null,
-        // Falls back to the first active kitchen if this delivery area
-        // hasn't been assigned one yet (see AdminLocations) -- so an order
-        // never silently disappears from every delivery partner's view just
-        // because admin forgot to map its area to a kitchen.
-        kitchenId: locationResolved?.kitchenId || kitchens.find((k) => k.active)?.id || null,
+        // The delivery area a customer's address resolved to doubles as the
+        // "kitchen" a delivery partner picks this order up from -- see
+        // evaluateAddress, which sets kitchenId to that area's own id.
+        // Falls back to the first active area if none matched (e.g. no
+        // areas configured yet) so an order never silently has no kitchen.
+        kitchenId: locationResolved?.kitchenId || locations.find((l) => l.active)?.id || null,
         customerAddress: locationResolved?.address ? {
           label: locationResolved.address.label,
           address: locationResolved.address.address,
@@ -2906,8 +2874,8 @@
       setNewBreed("");
     } }, /* @__PURE__ */ React.createElement(Plus, { size: 14 }), " Add breed"))));
   }
-  function AdminLocations({ locations, setLocations, kitchens, logAudit }) {
-    const [form, setForm] = useState({ name: "", lat: "", lng: "", kitchenId: kitchens[0]?.id || "", tiers: [{ maxKm: 3, fee: 0 }] });
+  function AdminLocations({ locations, setLocations, logAudit }) {
+    const [form, setForm] = useState({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
     const [geoBusy, setGeoBusy] = useState(false);
     const save = (next) => {
       setLocations(next);
@@ -2933,10 +2901,10 @@
       const lat = parseFloat(form.lat), lng = parseFloat(form.lng);
       if (Number.isNaN(lat) || Number.isNaN(lng)) return;
       const tiers = form.tiers.map((t) => ({ maxKm: Number(t.maxKm), fee: Number(t.fee) || 0 })).sort((a, b) => a.maxKm - b.maxKm);
-      const next = [...locations, { id: uid("loc_"), name: form.name.trim(), lat, lng, kitchenId: form.kitchenId || null, tiers, active: true }];
+      const next = [...locations, { id: uid("loc_"), name: form.name.trim(), lat, lng, tiers, active: true }];
       const result = save(next);
       logAudit(`Added service area "${form.name.trim()}" with ${tiers.length} distance tier(s), up to ${tiers[tiers.length - 1].maxKm} km`);
-      setForm({ name: "", lat: "", lng: "", kitchenId: kitchens[0]?.id || "", tiers: [{ maxKm: 3, fee: 0 }] });
+      setForm({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
       return result;
     };
     const updateLoc = (id, patch) => save(locations.map((l) => l.id === id ? { ...l, ...patch } : l));
@@ -2963,8 +2931,7 @@
         return { ...l, tiers: tiers.length ? tiers : getTiers(l), radiusKm: void 0, deliveryFee: void 0 };
       }));
     };
-    const kitchenName = (id) => kitchens.find((k) => k.id === id)?.name || "\u2014 no kitchen assigned \u2014";
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery areas", sub: "Each area can have multiple distance tiers with their own delivery fee -- e.g. free within 3km, \u20B920 up to 6km, \u20B940 beyond that. Each area is also assigned to the kitchen that prepares its orders -- that's what determines which delivery partner picks up which orders." }), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 20, maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new area"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.name, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "JP Nagar 7th Phase" })), /* @__PURE__ */ React.createElement(Field, { label: "Kitchen" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: form.kitchenId, onChange: (e) => setForm({ ...form, kitchenId: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 no kitchen assigned \u2014"), kitchens.map((k) => /* @__PURE__ */ React.createElement("option", { key: k.id, value: k.id }, k.name)))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: useDeviceLocation, disabled: geoBusy }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " ", geoBusy ? "Locating\u2026" : "Use my current location")), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement(Field, { label: "Latitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lat, onChange: (e) => setForm({ ...form, lat: e.target.value }), placeholder: "12.9716" })), /* @__PURE__ */ React.createElement(Field, { label: "Longitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lng, onChange: (e) => setForm({ ...form, lng: e.target.value }), placeholder: "77.5946" }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 4 } }, "Distance tiers"), form.tiers.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement(Field, { label: "Up to (km)" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.maxKm, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, maxKm: e.target.value } : x) }) })), /* @__PURE__ */ React.createElement(Field, { label: "Fee" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.fee, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, fee: e.target.value } : x) }) })), form.tiers.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => setForm({ ...form, tiers: form.tiers.filter((_, xi) => xi !== i) }), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer", marginTop: 18 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setForm({ ...form, tiers: [...form.tiers, { maxKm: (form.tiers[form.tiers.length - 1]?.maxKm || 0) + 2, fee: 0 }] }) }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, style: { marginTop: 14 }, onClick: addLocation }, "Add area")), /* @__PURE__ */ React.createElement("div", { className: "responsive-grid" }, locations.map((loc) => /* @__PURE__ */ React.createElement(Card, { key: loc.id }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, loc.name), /* @__PURE__ */ React.createElement("button", { onClick: () => removeLoc(loc.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", margin: "4px 0 10px" } }, loc.lat.toFixed(4), ", ", loc.lng.toFixed(4)), /* @__PURE__ */ React.createElement(Field, { label: "Kitchen" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: loc.kitchenId || "", onChange: (e) => updateLoc(loc.id, { kitchenId: e.target.value || null }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 no kitchen assigned \u2014"), kitchens.map((k) => /* @__PURE__ */ React.createElement("option", { key: k.id, value: k.id }, k.name)))), !loc.kitchenId && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--clay)", margin: "4px 0 8px" } }, "Orders here fall back to the first active kitchen until you assign one."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10, marginTop: 10 } }, getTiers(loc).map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--muted)", width: 70 } }, "Up to ", t.maxKm, "km"), /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 90 }, value: t.fee, onChange: (e) => updateLocTier(loc.id, i, { fee: Number(e.target.value) }) }), getTiers(loc).length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeLocTier(loc.id, i), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => addLocTier(loc.id) }, /* @__PURE__ */ React.createElement(Plus, { size: 12 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: loc.active ? "danger" : "accent", onClick: () => updateLoc(loc.id, { active: !loc.active }) }, loc.active ? "Deactivate" : "Activate")))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery areas", sub: "Each area can have multiple distance tiers with their own delivery fee -- e.g. free within 3km, \u20B920 up to 6km, \u20B940 beyond that. Every area here also doubles as a \"kitchen\" that delivery partners pick up from -- there's nothing extra to set up for that." }), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 20, maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new area"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.name, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "JP Nagar 7th Phase" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: useDeviceLocation, disabled: geoBusy }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " ", geoBusy ? "Locating\u2026" : "Use my current location")), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement(Field, { label: "Latitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lat, onChange: (e) => setForm({ ...form, lat: e.target.value }), placeholder: "12.9716" })), /* @__PURE__ */ React.createElement(Field, { label: "Longitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lng, onChange: (e) => setForm({ ...form, lng: e.target.value }), placeholder: "77.5946" }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 4 } }, "Distance tiers"), form.tiers.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement(Field, { label: "Up to (km)" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.maxKm, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, maxKm: e.target.value } : x) }) })), /* @__PURE__ */ React.createElement(Field, { label: "Fee" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.fee, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, fee: e.target.value } : x) }) })), form.tiers.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => setForm({ ...form, tiers: form.tiers.filter((_, xi) => xi !== i) }), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer", marginTop: 18 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setForm({ ...form, tiers: [...form.tiers, { maxKm: (form.tiers[form.tiers.length - 1]?.maxKm || 0) + 2, fee: 0 }] }) }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, style: { marginTop: 14 }, onClick: addLocation }, "Add area")), /* @__PURE__ */ React.createElement("div", { className: "responsive-grid" }, locations.map((loc) => /* @__PURE__ */ React.createElement(Card, { key: loc.id }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, loc.name), /* @__PURE__ */ React.createElement("button", { onClick: () => removeLoc(loc.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", margin: "4px 0 10px" } }, loc.lat.toFixed(4), ", ", loc.lng.toFixed(4)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 } }, getTiers(loc).map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--muted)", width: 70 } }, "Up to ", t.maxKm, "km"), /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 90 }, value: t.fee, onChange: (e) => updateLocTier(loc.id, i, { fee: Number(e.target.value) }) }), getTiers(loc).length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeLocTier(loc.id, i), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => addLocTier(loc.id) }, /* @__PURE__ */ React.createElement(Plus, { size: 12 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: loc.active ? "danger" : "accent", onClick: () => updateLoc(loc.id, { active: !loc.active }) }, loc.active ? "Deactivate" : "Activate")))));
   }
   function AdminSchedule({ config, orders, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
     const [capacityDraft, setCapacityDraft] = useState({});
@@ -3368,11 +3335,10 @@
     const nextLabel = order.status === "OUT_FOR_DELIVERY" ? "Mark Delivered" : null;
     return /* @__PURE__ */ React.createElement(Card, { key: order.id, style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 14.5 } }, order.dogSnapshot.name, "'s meal \xB7 ", order.customerName), order.customerAddress && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", marginTop: 2 } }, order.customerAddress.label, " \u2014 ", order.customerAddress.address), order.customerPhone && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement(CopyableText, { text: order.customerPhone, title: "Tap to copy phone number" })), order.deliveryNote && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, marginTop: 6, padding: "6px 8px", background: "var(--tone-warn-bg)", borderRadius: 8 } }, order.deliveryNote), order.leaveAtDoor && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, marginTop: 4, color: "var(--muted)" } }, "Leave at the door")), /* @__PURE__ */ React.createElement(Pill, { tone: order.status === "DELIVERED" ? "good" : "default" }, STATUS_LABEL[order.status])), nextLabel && /* @__PURE__ */ React.createElement(Btn, { small: true, style: { marginTop: 10 }, onClick: () => onAdvance(order), loadingText: "Updating\u2026" }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " ", nextLabel));
   }
-  function DeliveryView({ orders, setOrders, config, kitchens, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, onRefresh }) {
+  function DeliveryView({ orders, setOrders, config, locations, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, onRefresh }) {
     const [refreshing, setRefreshing] = useState(false);
     const [dateIdx, setDateIdx] = useState(0);
     const [claimError, setClaimError] = useState(null);
-    const [routeBusy, setRouteBusy] = useState(false);
     const handleRefresh = async () => {
       setRefreshing(true);
       await onRefresh?.();
@@ -3381,7 +3347,11 @@
     const dashDates = [todayStr(), addDays(todayStr(), 1), addDays(todayStr(), 2)];
     const dashDateLabels = ["Today", "Tomorrow", "Day after"];
     const selectedDate = dashDates[dateIdx];
-    const activeKitchens = kitchens.filter((k) => k.active);
+    // Delivery areas (set up by admin under Delivery Areas) double as the
+    // kitchens a delivery partner picks up from -- there's no separate
+    // kitchen list, this just reads the same locations the rest of the app
+    // already uses for delivery fees.
+    const activeKitchens = locations.filter((l) => l.active);
     // Only one claim can ever be active for a given partner -- enforced
     // server-side too (see claimSession in Code.gs) -- so this is singular,
     // not a list.
@@ -3393,6 +3363,7 @@
         const result = await claimSessionAtomic(date, session, kitchenId, deliveryPartnerId, deliveryName);
         if (result?.claim) {
           setSessionClaims((prev) => [...prev.filter((c) => c.id !== claimId), result.claim]);
+          await onRefresh?.();
           return;
         }
         // No Sheets backend configured -- fall back to a plain local
@@ -3416,7 +3387,7 @@
             return;
           }
         }
-        const record = { id: claimId, date, session, kitchenId, partnerId: deliveryPartnerId, partnerName: deliveryName, status: "active", claimedAt: existingSame ? existingSame.claimedAt : Date.now() };
+        const record = { id: claimId, date, session, kitchenId, partnerId: deliveryPartnerId, partnerName: deliveryName, status: "active", claimedAt: existingSame ? existingSame.claimedAt : Date.now(), arrivedAtKitchen: existingSame ? !!existingSame.arrivedAtKitchen : false };
         const next = [...current.filter((c) => c.id !== claimId), record];
         await persist(K.sessionClaims, next);
         setSessionClaims(next);
@@ -3435,18 +3406,38 @@
     };
     const releaseKitchen = async (claim) => {
       setClaimError(null);
+      // Optimistic local removal first -- so the button reflects the
+      // release immediately even if the network round trip is slow --
+      // followed by an authoritative refresh from the backend right after,
+      // so this can never look "stuck" showing a claim that's actually
+      // already gone (or vice versa).
+      setSessionClaims((prev) => prev.filter((c) => c.id !== claim.id));
       try {
         const result = await releaseSessionAtomic(claim.date, claim.session, claim.kitchenId, deliveryPartnerId);
-        if (result) {
-          setSessionClaims((prev) => prev.filter((c) => c.id !== claim.id));
+        if (!result) {
+          const current = await loadOrSeed(K.sessionClaims, []);
+          const next = current.filter((c) => c.id !== claim.id);
+          await persist(K.sessionClaims, next);
+        }
+      } catch (err) {
+        setClaimError(err?.message || "Couldn't release this kitchen.");
+      }
+      await onRefresh?.();
+    };
+    const arriveAtKitchen = async (claim) => {
+      setClaimError(null);
+      try {
+        const result = await arriveAtKitchenAtomic(claim.date, claim.session, claim.kitchenId, deliveryPartnerId);
+        if (result?.claim) {
+          setSessionClaims((prev) => prev.map((c) => c.id === claim.id ? result.claim : c));
           return;
         }
         const current = await loadOrSeed(K.sessionClaims, []);
-        const next = current.filter((c) => c.id !== claim.id);
+        const next = current.map((c) => c.id === claim.id ? { ...c, arrivedAtKitchen: true, arrivedAt: Date.now() } : c);
         await persist(K.sessionClaims, next);
         setSessionClaims(next);
       } catch (err) {
-        setClaimError(err?.message || "Couldn't release this kitchen.");
+        setClaimError(err?.message || "Couldn't notify admin you've arrived.");
       }
     };
     const advanceOrderStatus = async (order) => {
@@ -3484,28 +3475,23 @@
         setClaimError(err?.message || "Couldn't update that order's status.");
       }
     };
-    const getDirections = async (deliverableOrders) => {
-      setRouteBusy(true);
-      const origin = await getCurrentPositionBestEffort_();
-      const url = buildOneWayRouteUrl(deliverableOrders, origin);
-      setRouteBusy(false);
-      if (url) window.open(url, "_blank", "noopener,noreferrer");
-    };
     const header = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Delivery Partner", title: `Hi, ${deliveryName}`, sub: myClaim ? "You're currently handling one kitchen -- finish or release it before picking up another." : "Pick one kitchen to handle. Claiming opens up once its orders start preparing." }), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh"));
     const errorCard = claimError && /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0", background: "var(--tone-bad-bg)", border: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5 } }, claimError));
     if (myClaim) {
-      const kitchen = kitchens.find((k) => k.id === myClaim.kitchenId);
+      const kitchen = locations.find((l) => l.id === myClaim.kitchenId);
       const kitchenOrders = orders.filter((o) => o.date === myClaim.date && o.session === myClaim.session && o.kitchenId === myClaim.kitchenId && o.status !== "CANCELLED");
       const deliverable = kitchenOrders.filter((o) => o.status === "OUT_FOR_DELIVERY");
       const preparingCount = kitchenOrders.filter((o) => o.status === "PREPARING" || o.status === "COOKED" || o.status === "PACKED").length;
       const deliveredCount = kitchenOrders.filter((o) => o.status === "DELIVERED").length;
       const payable = kitchenOrders.reduce((s, o) => s + (o.deliveryFee || 0), 0);
-      return /* @__PURE__ */ React.createElement("div", null, header, errorCard, /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 } }, kitchen?.name || myClaim.kitchenId), /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, rupee(payable), " payable")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 12 } }, fmtDateLabel(myClaim.date), " \xB7 ", config.sessions?.[myClaim.session]?.label || myClaim.session, " \xB7 ", kitchenOrders.length, " order", kitchenOrders.length === 1 ? "" : "s", preparingCount > 0 ? ` \xB7 ${preparingCount} still preparing` : "", deliveredCount > 0 ? ` \xB7 ${deliveredCount} delivered` : ""), deliverable.length > 0 ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => getDirections(deliverable), loadingText: "Locating\u2026" }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " Get directions for ", deliverable.length, " stop", deliverable.length === 1 ? "" : "s") : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "Nothing is out for delivery yet -- once admin marks an order Out for Delivery, it'll show up here."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 14 } }, deliverable.map((o) => /* @__PURE__ */ React.createElement(DeliveryOrderRow, { key: o.id, order: o, onAdvance: advanceOrderStatus }))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 14 }, onClick: () => releaseKitchen(myClaim), loadingText: "Releasing\u2026" }, "Release this kitchen")));
+      const kitchenOrigin = kitchen ? { lat: kitchen.lat, lng: kitchen.lng } : null;
+      const routeUrl = buildRouteUrl(deliverable, kitchenOrigin);
+      return /* @__PURE__ */ React.createElement("div", null, header, errorCard, /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 } }, kitchen?.name || myClaim.kitchenId), /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, rupee(payable), " payable")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 12 } }, fmtDateLabel(myClaim.date), " \xB7 ", config.sessions?.[myClaim.session]?.label || myClaim.session, " \xB7 ", kitchenOrders.length, " order", kitchenOrders.length === 1 ? "" : "s", preparingCount > 0 ? ` \xB7 ${preparingCount} still preparing` : "", deliveredCount > 0 ? ` \xB7 ${deliveredCount} delivered` : ""), !myClaim.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => arriveAtKitchen(myClaim), loadingText: "Notifying\u2026" }, /* @__PURE__ */ React.createElement(MapPin, { size: 13 }), " I've arrived at the kitchen") : deliverable.length > 0 ? /* @__PURE__ */ React.createElement("a", { href: routeUrl || void 0, target: "_blank", rel: "noopener noreferrer", style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !routeUrl }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " Round-trip route for ", deliverable.length, " stop", deliverable.length === 1 ? "" : "s")) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "Admin's been notified you're at the kitchen. Once orders are handed to you and marked Out for Delivery, they'll show up here with a route."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 14 } }, deliverable.map((o) => /* @__PURE__ */ React.createElement(DeliveryOrderRow, { key: o.id, order: o, onAdvance: advanceOrderStatus }))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 14 }, onClick: () => releaseKitchen(myClaim), loadingText: "Releasing\u2026" }, "Release this kitchen")));
     }
     return /* @__PURE__ */ React.createElement("div", null, header, errorCard, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, margin: "14px 0" } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
       const sessionOrders = orders.filter((o) => o.date === selectedDate && o.session === key && o.status !== "CANCELLED");
-      return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 12px" } }, "Serving ", fmtTime(sess.servingTime)), activeKitchens.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No kitchens are set up yet -- ask admin to add one.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, activeKitchens.map((kitchen) => {
+      return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 12px" } }, "Serving ", fmtTime(sess.servingTime)), activeKitchens.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No delivery areas are set up yet -- ask admin to add one.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, activeKitchens.map((kitchen) => {
         const kitchenOrders = sessionOrders.filter((o) => o.kitchenId === kitchen.id);
         const claimId = `${selectedDate}_${key}_${kitchen.id}`;
         const claim = sessionClaims.find((c) => c.id === claimId && c.status === "active");
@@ -3516,47 +3502,39 @@
       })));
     })));
   }
-  function AdminDelivery({ deliveryPartners, sessionClaims, setSessionClaims, kitchens, setKitchens, orders, logAudit }) {
+  function AdminDelivery({ deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh }) {
     const [releasing, setReleasing] = useState(null);
-    const [kitchenForm, setKitchenForm] = useState({ name: "", lat: "", lng: "" });
-    const saveKitchens = (next) => {
-      setKitchens(next);
-      return persist(K.kitchens, next);
+    const [refreshing, setRefreshing] = useState(false);
+    const handleRefresh = async () => {
+      setRefreshing(true);
+      await onRefresh?.();
+      setRefreshing(false);
     };
-    const addKitchen = () => {
-      if (!kitchenForm.name.trim()) return;
-      const lat = kitchenForm.lat ? parseFloat(kitchenForm.lat) : null;
-      const lng = kitchenForm.lng ? parseFloat(kitchenForm.lng) : null;
-      const next = [...kitchens, { id: uid("kitchen_"), name: kitchenForm.name.trim(), lat: Number.isNaN(lat) ? null : lat, lng: Number.isNaN(lng) ? null : lng, active: true }];
-      saveKitchens(next);
-      logAudit(`Added kitchen "${kitchenForm.name.trim()}"`);
-      setKitchenForm({ name: "", lat: "", lng: "" });
-    };
-    const updateKitchen = (id, patch) => saveKitchens(kitchens.map((k) => k.id === id ? { ...k, ...patch } : k));
-    const removeKitchen = (id) => saveKitchens(kitchens.filter((k) => k.id !== id));
     const forceRelease = async (claim) => {
       setReleasing(claim.id);
+      // Optimistic local removal, then an authoritative refresh right after
+      // -- same defensive pattern as the delivery partner's own release
+      // button, so this can never look like it silently failed.
+      setSessionClaims((prev) => prev.filter((c) => c.id !== claim.id));
       try {
         const result = await adminReleaseSessionAtomic(claim.date, claim.session, claim.kitchenId);
-        if (result) {
-          setSessionClaims((prev) => prev.filter((c) => c.id !== claim.id));
-        } else {
+        if (!result) {
           const current = await loadOrSeed(K.sessionClaims, []);
           const next = current.filter((c) => c.id !== claim.id);
           await persist(K.sessionClaims, next);
-          setSessionClaims(next);
         }
-        const kitchenName = kitchens.find((k) => k.id === claim.kitchenId)?.name || claim.kitchenId;
+        const kitchenName = locations.find((l) => l.id === claim.kitchenId)?.name || claim.kitchenId;
         logAudit(`Force-released ${fmtDateLabel(claim.date)} \xB7 ${claim.session} \xB7 ${kitchenName} from delivery partner ${claim.partnerName}`);
       } catch {
       }
+      await onRefresh?.();
       setReleasing(null);
     };
     const payableFor = (claim) => orders
       .filter((o) => o.date === claim.date && o.session === claim.session && o.kitchenId === claim.kitchenId && o.status !== "CANCELLED")
       .reduce((s, o) => s + (o.deliveryFee || 0), 0);
     const activeClaims = sessionClaims.filter((c) => c.status === "active");
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery partners & kitchens", sub: "Manage the kitchens delivery partners pick up from, see who's currently handling what, and force-release a stuck claim if needed." }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "4px 0 8px" } }, "Kitchens"), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16, maxWidth: 460 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement(Field, { label: "New kitchen name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: kitchenForm.name, onChange: (e) => setKitchenForm({ ...kitchenForm, name: e.target.value }), placeholder: "Kitchen 4" })), /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: addKitchen }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 } }, kitchens.map((k) => /* @__PURE__ */ React.createElement(Card, { key: k.id, style: { padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("input", { style: { ...inputStyle, maxWidth: 200 }, value: k.name, onChange: (e) => updateKitchen(k.id, { name: e.target.value }) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: k.active ? "danger" : "accent", onClick: () => updateKitchen(k.id, { active: !k.active }) }, k.active ? "Deactivate" : "Activate"), /* @__PURE__ */ React.createElement("button", { onClick: () => removeKitchen(k.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 })))))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Currently claimed kitchens"), activeClaims.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No kitchens are currently claimed by anyone.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 } }, activeClaims.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, fmtDateLabel(c.date), " \xB7 ", c.session, " \xB7 ", kitchens.find((k) => k.id === c.kitchenId)?.name || c.kitchenId), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, "Held by ", c.partnerName, " \xB7 since ", fmtDateTime(c.claimedAt), " \xB7 ", rupee(payableFor(c)), " payable")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => forceRelease(c), loadingText: "Releasing\u2026" }, "Force release")))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Delivery partner accounts"), deliveryPartners.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No delivery partners have signed up yet. Share the app link with them and have them use the Delivery sign-in on the header.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, deliveryPartners.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.id, style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, p.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, p.phone || "No phone on file", " \xB7 joined ", fmtDate(p.createdAt))))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery partners", sub: "Kitchens here are just your Delivery Areas -- see who's currently handling which one, and force-release a stuck claim if needed." }), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: handleRefresh, loadingText: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refreshing\u2026") }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Refresh")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Currently claimed kitchens"), activeClaims.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No kitchens are currently claimed by anyone.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 } }, activeClaims.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 } }, fmtDateLabel(c.date), " \xB7 ", c.session, " \xB7 ", locations.find((l) => l.id === c.kitchenId)?.name || c.kitchenId), c.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "At the kitchen") : /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "On the way")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, "Held by ", c.partnerName, " \xB7 since ", fmtDateTime(c.claimedAt), " \xB7 ", rupee(payableFor(c)), " payable", c.arrivedAtKitchen && c.arrivedAt ? ` \xB7 arrived ${fmtDateTime(c.arrivedAt)}` : "")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => forceRelease(c), loadingText: "Releasing\u2026" }, "Force release")))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", margin: "18px 0 8px" } }, "Delivery partner accounts"), deliveryPartners.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "No delivery partners have signed up yet. Share the app link with them and have them use the Delivery sign-in on the header.")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, deliveryPartners.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.id, style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, p.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)" } }, p.phone || "No phone on file", " \xB7 joined ", fmtDate(p.createdAt))))));
   }
   function AdminData({ orders, setOrders, dogs, setDogs, communityPosts, setCommunityPosts, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos, carts, setCarts, allAddresses, setAllAddresses, audit, logAudit }) {
     const [customers, setCustomers] = useState(null);
@@ -3882,7 +3860,6 @@
     const [deliveryPhone, setDeliveryPhone] = useState("");
     const [deliveryPartners, setDeliveryPartners] = useState([]);
     const [sessionClaims, setSessionClaims] = useState([]);
-    const [kitchens, setKitchens] = useState(SEED_KITCHENS);
     const [partnerAuthOpen, setPartnerAuthOpen] = useState(false);
     const [partnerAuthMode, setPartnerAuthMode] = useState("login");
     const [partnerAuthName, setPartnerAuthName] = useState("");
@@ -3902,6 +3879,7 @@
     const knownOrderIdsRef = useRef(null);
     const myIdentityRef = useRef({ name: "", customerId: "" });
     const prevOrderStatusRef = useRef(null);
+    const prevArrivedRef = useRef(null);
     const lastAdminEditRef = useRef(0);
     const EDIT_GRACE_MS = 8e3;
     const setConfigT = useCallback((v) => {
@@ -4022,7 +4000,7 @@
         } catch {
           if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches) setTheme("dark");
         }
-        const [c, ing, br, en, dg, ord, cs, fo, so, loc, qr, fq, au, addr, crt, dp, sc, kt] = await loadManyOrSeed([
+        const [c, ing, br, en, dg, ord, cs, fo, so, loc, qr, fq, au, addr, crt, dp, sc] = await loadManyOrSeed([
           [K.config, SEED_CONFIG],
           [K.ingredients, SEED_INGREDIENTS],
           [K.breeds, SEED_BREEDS],
@@ -4039,8 +4017,7 @@
           [K.addresses, []],
           [K.carts, []],
           [K.deliveryPartners, []],
-          [K.sessionClaims, []],
-          [K.kitchens, []]
+          [K.sessionClaims, []]
         ]);
         const { merged: mergedIngredients, changed: ingredientsNeedMigration } = migrateIngredientSizeRules(ing, SEED_INGREDIENTS);
         setConfig(mergeConfig(c));
@@ -4062,17 +4039,14 @@
         setCarts(crt);
         setDeliveryPartners(dp);
         setSessionClaims(sc);
-        if (kt && kt.length) {
-          setKitchens(kt);
-        } else {
-          setKitchens(SEED_KITCHENS);
-          persist(K.kitchens, SEED_KITCHENS).catch(() => {
-          });
-        }
         knownOrderIdsRef.current = new Set(ord.map((o) => o.id));
         prevOrderStatusRef.current = {};
         ord.forEach((o) => {
           prevOrderStatusRef.current[o.id] = o.status;
+        });
+        prevArrivedRef.current = {};
+        sc.forEach((c) => {
+          prevArrivedRef.current[c.id] = !!c.arrivedAtKitchen;
         });
         setLoading(false);
         (async () => {
@@ -4115,7 +4089,7 @@
     }, []);
     const refresh = useCallback(async () => {
       try {
-        const [ord, dg, cfgRaw, cs, fo, so, loc, addr, ctopics, cposts, ccomments, clikes, cphotos, crt, dp, sc, kt] = await loadManyOrSeed([
+        const [ord, dg, cfgRaw, cs, fo, so, loc, addr, ctopics, cposts, ccomments, clikes, cphotos, crt, dp, sc] = await loadManyOrSeed([
           [K.orders, []],
           [K.dogs, []],
           [K.config, SEED_CONFIG],
@@ -4131,8 +4105,7 @@
           [K.profilePhotos, []],
           [K.carts, []],
           [K.deliveryPartners, []],
-          [K.sessionClaims, []],
-          [K.kitchens, []]
+          [K.sessionClaims, []]
         ]);
         if (knownOrderIdsRef.current) {
           const fresh = ord.filter((o) => !knownOrderIdsRef.current.has(o.id));
@@ -4204,6 +4177,34 @@
         // signup/claim/release actions, so there's nothing local to protect.
         setDeliveryPartners((prev) => JSON.stringify(prev) === JSON.stringify(dp) ? prev : dp);
         setSessionClaims((prev) => JSON.stringify(prev) === JSON.stringify(sc) ? prev : sc);
+        // Notify admin the moment a delivery partner marks themselves as
+        // having reached a claimed kitchen -- same bell/toast/chime already
+        // used for new orders above, just triggered by a different kind of
+        // event. Not gated on the current `role` here (refresh runs with a
+        // stable identity regardless of which role is active) -- same as
+        // the new-order notifications above, the Header only ever *shows*
+        // this bell/toast while role is "admin", so it's safe to always
+        // compute it here and let the render layer decide visibility.
+        if (prevArrivedRef.current) {
+          const justArrived = sc.filter((c) => c.arrivedAtKitchen && !prevArrivedRef.current[c.id]);
+          if (justArrived.length > 0) {
+            const entries = justArrived.map((c) => ({
+              id: uid("n_"),
+              ts: c.arrivedAt || Date.now(),
+              text: `${c.partnerName} has arrived at the kitchen for ${fmtDateLabel(c.date)} \xB7 ${cfgRaw?.sessions?.[c.session]?.label || c.session} -- ready for orders to be handed off.`
+            }));
+            setNotifications((prev) => [...entries, ...prev].slice(0, 30));
+            playNotificationChime();
+            setToast(entries[entries.length - 1]);
+            clearTimeout(toastTimerRef.current);
+            toastTimerRef.current = setTimeout(() => setToast(null), 6e3);
+          }
+        }
+        const nextArrivedMap = {};
+        sc.forEach((c) => {
+          nextArrivedMap[c.id] = !!c.arrivedAtKitchen;
+        });
+        prevArrivedRef.current = nextArrivedMap;
       } catch {
       }
     }, []);
@@ -4665,7 +4666,6 @@
         forceOpenSlots,
         slotOverrides,
         locations,
-        kitchens,
         qrCode,
         initialDogId: pendingDogId,
         setOrders,
@@ -4721,7 +4721,7 @@
         onOpenAuth: openAuth,
         markLocalEdit
       }
-    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, kitchens, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
+    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
       AdminSchedule,
       {
         config,
@@ -4734,7 +4734,7 @@
         setSlotOverrides: setSlotOverridesT,
         logAudit
       }
-    ), role === "admin" && tab === "payments" && /* @__PURE__ */ React.createElement(AdminPayments, { qrCode, setQrCode, config, setConfig: setConfigT, logAudit }), role === "admin" && tab === "delivery" && /* @__PURE__ */ React.createElement(AdminDelivery, { deliveryPartners, sessionClaims, setSessionClaims, kitchens, setKitchens, orders, logAudit }), role === "delivery" && tab === "delivery" && /* @__PURE__ */ React.createElement(DeliveryView, { orders, setOrders: setOrdersT, config, kitchens, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, onRefresh: refresh }), role === "admin" && tab === "faq" && /* @__PURE__ */ React.createElement(AdminFAQ, { faqs, setFaqs, logAudit }), role === "admin" && tab === "community" && /* @__PURE__ */ React.createElement(AdminCommunity, { communityPosts, setCommunityPosts: setCommunityPostsT, communityLoaded, logAudit }), role === "admin" && tab === "communityTopics" && /* @__PURE__ */ React.createElement(AdminCommunityTopics, { communityTopics, setCommunityTopics: setCommunityTopicsT, communityLoaded, logAudit }), role === "admin" && tab === "data" && /* @__PURE__ */ React.createElement(AdminData, { orders, setOrders: setOrdersT, dogs, setDogs: setDogsT, communityPosts, setCommunityPosts: setCommunityPostsT, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos: setProfilePhotosT, carts, setCarts: setCartsT, allAddresses: addresses, setAllAddresses: setAddressesT, audit, logAudit }), role === "admin" && tab === "settings" && /* @__PURE__ */ React.createElement(AdminSettings, { config, setConfig: setConfigT, cancelledSlots, setCancelledSlots: setCancelledSlotsT, forceOpenSlots, setForceOpenSlots: setForceOpenSlotsT, slotOverrides, setSlotOverrides: setSlotOverridesT, logAudit }), role === "admin" && tab === "audit" && /* @__PURE__ */ React.createElement(AdminAudit, { audit }))), role === "customer" && /* @__PURE__ */ React.createElement(ChatWidget, { faqs }));
+    ), role === "admin" && tab === "payments" && /* @__PURE__ */ React.createElement(AdminPayments, { qrCode, setQrCode, config, setConfig: setConfigT, logAudit }), role === "admin" && tab === "delivery" && /* @__PURE__ */ React.createElement(AdminDelivery, { deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh: refresh }), role === "delivery" && tab === "delivery" && /* @__PURE__ */ React.createElement(DeliveryView, { orders, setOrders: setOrdersT, config, locations, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, onRefresh: refresh }), role === "admin" && tab === "faq" && /* @__PURE__ */ React.createElement(AdminFAQ, { faqs, setFaqs, logAudit }), role === "admin" && tab === "community" && /* @__PURE__ */ React.createElement(AdminCommunity, { communityPosts, setCommunityPosts: setCommunityPostsT, communityLoaded, logAudit }), role === "admin" && tab === "communityTopics" && /* @__PURE__ */ React.createElement(AdminCommunityTopics, { communityTopics, setCommunityTopics: setCommunityTopicsT, communityLoaded, logAudit }), role === "admin" && tab === "data" && /* @__PURE__ */ React.createElement(AdminData, { orders, setOrders: setOrdersT, dogs, setDogs: setDogsT, communityPosts, setCommunityPosts: setCommunityPostsT, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos: setProfilePhotosT, carts, setCarts: setCartsT, allAddresses: addresses, setAllAddresses: setAddressesT, audit, logAudit }), role === "admin" && tab === "settings" && /* @__PURE__ */ React.createElement(AdminSettings, { config, setConfig: setConfigT, cancelledSlots, setCancelledSlots: setCancelledSlotsT, forceOpenSlots, setForceOpenSlots: setForceOpenSlotsT, slotOverrides, setSlotOverrides: setSlotOverridesT, logAudit }), role === "admin" && tab === "audit" && /* @__PURE__ */ React.createElement(AdminAudit, { audit }))), role === "customer" && /* @__PURE__ */ React.createElement(ChatWidget, { faqs }));
   }
   function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin, requestDelivery, deliveryName, partnerSignOut, myName, myPhoto, openAuth, signOut, goToProfile, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs, customerNotifications, customerNotifOpen, setCustomerNotifOpen, customerLastReadTs, setCustomerLastReadTs }) {
     const unreadCount = notifications.filter((n) => n.ts > lastReadTs).length;
