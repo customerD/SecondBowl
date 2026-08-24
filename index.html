@@ -362,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "4.8.0";
+  const APP_VERSION = "4.9.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2795,7 +2795,7 @@
     const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
     const eveningMeals = mealsToday.filter((o) => o.session === "evening").length;
     const next = nextServingWindow(config, scopedOrders);
-    const nextCount = slotCount(next.date, next.session, scopedOrders, areaFilter);
+    const nextCount = slotCount(next.date, next.session, orders, areaFilter);
     const activeToday = mealsToday;
     const counts = {};
     DASHBOARD_STATUSES.forEach((s) => counts[s] = activeToday.filter((o) => o.status === s).length);
@@ -2829,8 +2829,8 @@
     ), showIngredientsNeeded && /* @__PURE__ */ React.createElement(IngredientsNeededModal, { date: next.date, session: next.session, orders: scopedOrders, config, onClose: () => setShowIngredientsNeeded(false) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid", style: { marginBottom: 18 } }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
       const capacity = resolveCapacity(selectedDate, key, config, slotOverrides, areaFilter, locations);
-      const count = slotCount(selectedDate, key, scopedOrders, areaFilter);
-      const st = sessionState(selectedDate, key, config, scopedOrders, cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
+      const count = slotCount(selectedDate, key, orders, areaFilter);
+      const st = sessionState(selectedDate, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
       const outForDelivery = mealsForSelectedDate.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
       const groups = {};
       outForDelivery.forEach((o) => {
@@ -4446,6 +4446,20 @@
       const onFocus = () => refresh();
       window.addEventListener("focus", onFocus);
       return () => window.removeEventListener("focus", onFocus);
+    }, [loading, refresh]);
+    // Keeps counts, capacity, and everyone else's activity (new orders,
+    // delivery-partner claims, etc.) live without requiring a manual
+    // refresh or a tab focus/blur cycle -- e.g. a freshly-placed order for
+    // tomorrow wouldn't show up on the dashboard at all until one of those
+    // happened. Skips a tick entirely while the tab is hidden, so it's not
+    // burning requests in a background tab nobody's looking at.
+    useEffect(() => {
+      if (loading) return;
+      const intervalMs = window.__STORAGE_POLL_MS__ || 2e4;
+      const id = setInterval(() => {
+        if (document.visibilityState === "visible") refresh();
+      }, intervalMs);
+      return () => clearInterval(id);
     }, [loading, refresh]);
     const logAudit = useCallback((details) => {
       setAudit((prev) => {
