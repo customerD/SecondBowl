@@ -362,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "4.7.0";
+  const APP_VERSION = "4.8.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -1074,17 +1074,39 @@
     }
     return url;
   }
-  function resolveCapacity(dateStr, sessionKey, config, slotOverrides) {
-    const override = slotOverrides.find((o) => o.date === dateStr && o.session === sessionKey);
-    return override ? override.capacity : config.sessions[sessionKey].capacity;
+  // kitchenId is optional throughout this trio -- when omitted, behavior is
+  // unchanged from before (one shared, global capacity/state across every
+  // kitchen). When given, a kitchen can have its own capacity ceiling (via
+  // that Location's orderLimit, see AdminLocations) and its own
+  // cancel/force-open/capacity overrides (see AdminSchedule's "apply to"
+  // selector) -- these are checked FIRST, before falling back to a global
+  // (no-kitchenId) override, so one kitchen's slot state never determines
+  // another's.
+  function resolveCapacity(dateStr, sessionKey, config, slotOverrides, kitchenId, locations) {
+    if (kitchenId) {
+      const specific = slotOverrides.find((o) => o.date === dateStr && o.session === sessionKey && o.kitchenId === kitchenId);
+      if (specific) return specific.capacity;
+    }
+    const global = slotOverrides.find((o) => o.date === dateStr && o.session === sessionKey && !o.kitchenId);
+    if (global) return global.capacity;
+    if (kitchenId && locations) {
+      const loc = locations.find((l) => l.id === kitchenId);
+      if (loc && typeof loc.orderLimit === "number" && loc.orderLimit > 0) return loc.orderLimit;
+    }
+    return config.sessions[sessionKey].capacity;
   }
-  function sessionState(dateStr, sessionKey, config, orders, cancelledSlots, forceOpenSlots, slotOverrides) {
-    if (cancelledSlots.some((c) => c.date === dateStr && c.session === sessionKey)) return "CANCELLED";
+  function sessionState(dateStr, sessionKey, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, kitchenId, locations) {
+    const isCancelled = kitchenId
+      ? cancelledSlots.some((c) => c.date === dateStr && c.session === sessionKey && (c.kitchenId === kitchenId || !c.kitchenId))
+      : cancelledSlots.some((c) => c.date === dateStr && c.session === sessionKey);
+    if (isCancelled) return "CANCELLED";
     const sess = config.sessions[sessionKey];
-    const capacity = resolveCapacity(dateStr, sessionKey, config, slotOverrides);
-    const count = orders.filter((o) => o.date === dateStr && o.session === sessionKey && o.status !== "CANCELLED").length;
+    const capacity = resolveCapacity(dateStr, sessionKey, config, slotOverrides, kitchenId, locations);
+    const count = slotCount(dateStr, sessionKey, orders, kitchenId);
     if (count >= capacity) return "FULL";
-    const forced = forceOpenSlots.some((f) => f.date === dateStr && f.session === sessionKey);
+    const forced = kitchenId
+      ? forceOpenSlots.some((f) => f.date === dateStr && f.session === sessionKey && (f.kitchenId === kitchenId || !f.kitchenId))
+      : forceOpenSlots.some((f) => f.date === dateStr && f.session === sessionKey);
     const today = todayStr();
     if (dateStr < today) return forced ? "OPEN" : "CLOSED";
     if (dateStr === today) {
@@ -1097,15 +1119,15 @@
     }
     return "OPEN";
   }
-  function slotCount(dateStr, sessionKey, orders) {
-    return orders.filter((o) => o.date === dateStr && o.session === sessionKey && o.status !== "CANCELLED").length;
+  function slotCount(dateStr, sessionKey, orders, kitchenId) {
+    return orders.filter((o) => o.date === dateStr && o.session === sessionKey && o.status !== "CANCELLED" && (!kitchenId || o.kitchenId === kitchenId)).length;
   }
-  function nextAvailableSlot(config, orders, cancelledSlots, forceOpenSlots, slotOverrides) {
+  function nextAvailableSlot(config, orders, cancelledSlots, forceOpenSlots, slotOverrides, kitchenId, locations) {
     const start = todayStr();
     for (let d = 0; d < 21; d++) {
       const date = addDays(start, d);
       for (const key of ["morning", "evening"]) {
-        const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+        const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, kitchenId, locations);
         if (st === "OPEN" || st === "CLOSING_SOON") return { date, session: key };
       }
     }
@@ -2180,7 +2202,7 @@
       };
       let alreadyPersisted = false;
       if (session) {
-        const capacity = resolveCapacity(date, session, config, slotOverrides);
+        const capacity = resolveCapacity(date, session, config, slotOverrides, locationResolved?.kitchenId, locations);
         try {
           const result = await reserveSlotAtomic(entry, capacity);
           if (result) {
@@ -2211,9 +2233,9 @@
       }, 1200);
       return () => clearTimeout(cartSaveTimerRef.current);
     }, [dogId, date, session, selected, customQty, deliveryNote, leaveAtDoor, uncheckedItems]);
-    const nextSlot = useMemo(() => nextAvailableSlot(config, orders, cancelledSlots, forceOpenSlots, slotOverrides), [config, orders, cancelledSlots, forceOpenSlots, slotOverrides]);
+    const nextSlot = useMemo(() => nextAvailableSlot(config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations), [config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId]);
     const bothFullToday = ["morning", "evening"].every((k) => {
-      const st = sessionState(todayStr(), k, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+      const st = sessionState(todayStr(), k, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations);
       return st === "FULL" || st === "CLOSED" || st === "CANCELLED";
     });
     const toggleIngredient = (id) => {
@@ -2348,7 +2370,7 @@
       };
     };
     const goToPayment = async () => {
-      const currentState = sessionState(date, session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+      const currentState = sessionState(date, session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations);
       if (currentState !== "OPEN" && currentState !== "CLOSING_SOON") {
         setSessionClosedError(true);
         setSession(null);
@@ -2380,7 +2402,7 @@
     const finalizeOrderInner = async (draft, status, paymentMethod = "upi") => {
       const order = { ...draft, status, paymentMethod, paymentClaimedAt: status === "PENDING_PAYMENT" ? Date.now() : null };
       if (window.__placeOrderAtomic__) {
-        const capacity = resolveCapacity(order.date, order.session, config, slotOverrides);
+        const capacity = resolveCapacity(order.date, order.session, config, slotOverrides, order.kitchenId, locations);
         try {
           await placeOrderAtomic(order, capacity);
         } catch (err) {
@@ -2486,10 +2508,10 @@
       setDateIdx(i);
       setSession(null);
     }, className: "date-chip" + (i === dateIdx ? " active" : "") }, fmtDateLabel(d)))), /* @__PURE__ */ React.createElement("div", { className: "session-grid", style: { marginTop: 16 } }, ["morning", "evening"].map((key) => {
-      const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+      const st = sessionState(date, key, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations);
       const sess = config.sessions[key];
-      const capacity = resolveCapacity(date, key, config, slotOverrides);
-      const count = slotCount(date, key, orders);
+      const capacity = resolveCapacity(date, key, config, slotOverrides, locationResolved?.kitchenId, locations);
+      const count = slotCount(date, key, orders, locationResolved?.kitchenId);
       const disabled = st === "FULL" || st === "CLOSED" || st === "CANCELLED";
       const isSelected = session === key;
       return /* @__PURE__ */ React.createElement("button", { key, disabled, onClick: () => setSession(key), className: "session-card" + (isSelected ? " selected" : ""), style: { opacity: disabled ? 0.55 : 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" } }, fmtTime(sess.servingTime))), /* @__PURE__ */ React.createElement(BowlGauge, { used: count, capacity, size: 52 })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label)));
@@ -2715,18 +2737,16 @@
     const rows = Object.values(totals).sort((a, b) => b.qty - a.qty);
     return /* @__PURE__ */ React.createElement(Modal, { onCancel: onClose, maxWidth: 420 }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 4 } }, "Ingredients needed"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 16 } }, fmtDateLabel(date), " \xB7 ", config.sessions?.[session]?.label || session, " \xB7 across ", relevant.length, " order", relevant.length === 1 ? "" : "s"), rows.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", margin: 0 } }, "No orders booked into this slot yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, maxHeight: "50vh", overflowY: "auto" } }, rows.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.name + r.unit, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.name), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 14 } }, Math.round(r.qty * 10) / 10, " ", r.unit)))), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "ghost", style: { marginTop: 18 }, onClick: onClose }, "Close"));
   }
-  function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders, onRefresh }) {
+  function AdminDashboard({ config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, areaFilter, setAreaFilter, onGoToOrders, onRefresh }) {
     const [newCustomersToday, setNewCustomersToday] = useState(null);
     const [totalCustomers, setTotalCustomers] = useState(null);
     const [totalRevenue, setTotalRevenue] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
     const [dateIdx, setDateIdx] = useState(0);
     const [showIngredientsNeeded, setShowIngredientsNeeded] = useState(false);
-    // "" means All areas. Scopes the stats/session breakdown below to one
-    // delivery area (kitchen) at a time -- slot capacity/state stays global
-    // (capacity is a whole-kitchen constraint, not per-area), only the
-    // counts and order groupings are filtered.
-    const [areaFilter, setAreaFilter] = useState("");
+    // "" means All areas. This selection is shared across Dashboard,
+    // Schedule, Settings, and remembered across a refresh -- see the
+    // adminAreaFilter state in App().
     const activeAreas = locations.filter((l) => l.active);
     const scopedOrders = areaFilter ? orders.filter((o) => o.kitchenId === areaFilter) : orders;
     useEffect(() => {
@@ -2775,7 +2795,7 @@
     const morningMeals = mealsToday.filter((o) => o.session === "morning").length;
     const eveningMeals = mealsToday.filter((o) => o.session === "evening").length;
     const next = nextServingWindow(config, scopedOrders);
-    const nextCount = slotCount(next.date, next.session, scopedOrders);
+    const nextCount = slotCount(next.date, next.session, scopedOrders, areaFilter);
     const activeToday = mealsToday;
     const counts = {};
     DASHBOARD_STATUSES.forEach((s) => counts[s] = activeToday.filter((o) => o.status === s).length);
@@ -2808,9 +2828,9 @@
       }, style: { background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: "var(--turmeric)", fontFamily: "var(--font-mono)", padding: 0 } }, "Ingredients needed"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--leaf)", fontFamily: "var(--font-mono)" } }, "View orders \u2192"))
     ), showIngredientsNeeded && /* @__PURE__ */ React.createElement(IngredientsNeededModal, { date: next.date, session: next.session, orders: scopedOrders, config, onClose: () => setShowIngredientsNeeded(false) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid", style: { marginBottom: 18 } }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
-      const capacity = resolveCapacity(selectedDate, key, config, slotOverrides);
-      const count = slotCount(selectedDate, key, scopedOrders);
-      const st = sessionState(selectedDate, key, config, scopedOrders, cancelledSlots, forceOpenSlots, slotOverrides);
+      const capacity = resolveCapacity(selectedDate, key, config, slotOverrides, areaFilter, locations);
+      const count = slotCount(selectedDate, key, scopedOrders, areaFilter);
+      const st = sessionState(selectedDate, key, config, scopedOrders, cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
       const outForDelivery = mealsForSelectedDate.filter((o) => o.session === key && o.status === "OUT_FOR_DELIVERY");
       const groups = {};
       outForDelivery.forEach((o) => {
@@ -2918,7 +2938,7 @@
     } }, /* @__PURE__ */ React.createElement(Plus, { size: 14 }), " Add breed"))));
   }
   function AdminLocations({ locations, setLocations, logAudit }) {
-    const [form, setForm] = useState({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
+    const [form, setForm] = useState({ name: "", lat: "", lng: "", orderLimit: "", tiers: [{ maxKm: 3, fee: 0 }] });
     const [geoBusy, setGeoBusy] = useState(false);
     const save = (next) => {
       setLocations(next);
@@ -2944,10 +2964,11 @@
       const lat = parseFloat(form.lat), lng = parseFloat(form.lng);
       if (Number.isNaN(lat) || Number.isNaN(lng)) return;
       const tiers = form.tiers.map((t) => ({ maxKm: Number(t.maxKm), fee: Number(t.fee) || 0 })).sort((a, b) => a.maxKm - b.maxKm);
-      const next = [...locations, { id: uid("loc_"), name: form.name.trim(), lat, lng, tiers, active: true }];
+      const orderLimit = form.orderLimit === "" ? null : Number(form.orderLimit);
+      const next = [...locations, { id: uid("loc_"), name: form.name.trim(), lat, lng, orderLimit: Number.isFinite(orderLimit) ? orderLimit : null, tiers, active: true }];
       const result = save(next);
       logAudit(`Added service area "${form.name.trim()}" with ${tiers.length} distance tier(s), up to ${tiers[tiers.length - 1].maxKm} km`);
-      setForm({ name: "", lat: "", lng: "", tiers: [{ maxKm: 3, fee: 0 }] });
+      setForm({ name: "", lat: "", lng: "", orderLimit: "", tiers: [{ maxKm: 3, fee: 0 }] });
       return result;
     };
     const updateLoc = (id, patch) => save(locations.map((l) => l.id === id ? { ...l, ...patch } : l));
@@ -2974,44 +2995,56 @@
         return { ...l, tiers: tiers.length ? tiers : getTiers(l), radiusKm: void 0, deliveryFee: void 0 };
       }));
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery areas", sub: "Each area can have multiple distance tiers with their own delivery fee -- e.g. free within 3km, \u20B920 up to 6km, \u20B940 beyond that. Every area here also doubles as a \"kitchen\" that delivery partners pick up from -- there's nothing extra to set up for that." }), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 20, maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new area"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.name, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "JP Nagar 7th Phase" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: useDeviceLocation, disabled: geoBusy }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " ", geoBusy ? "Locating\u2026" : "Use my current location")), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement(Field, { label: "Latitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lat, onChange: (e) => setForm({ ...form, lat: e.target.value }), placeholder: "12.9716" })), /* @__PURE__ */ React.createElement(Field, { label: "Longitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lng, onChange: (e) => setForm({ ...form, lng: e.target.value }), placeholder: "77.5946" }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 4 } }, "Distance tiers"), form.tiers.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement(Field, { label: "Up to (km)" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.maxKm, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, maxKm: e.target.value } : x) }) })), /* @__PURE__ */ React.createElement(Field, { label: "Fee" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.fee, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, fee: e.target.value } : x) }) })), form.tiers.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => setForm({ ...form, tiers: form.tiers.filter((_, xi) => xi !== i) }), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer", marginTop: 18 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setForm({ ...form, tiers: [...form.tiers, { maxKm: (form.tiers[form.tiers.length - 1]?.maxKm || 0) + 2, fee: 0 }] }) }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, style: { marginTop: 14 }, onClick: addLocation }, "Add area")), /* @__PURE__ */ React.createElement("div", { className: "responsive-grid" }, locations.map((loc) => /* @__PURE__ */ React.createElement(Card, { key: loc.id }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, loc.name), /* @__PURE__ */ React.createElement("button", { onClick: () => removeLoc(loc.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", margin: "4px 0 10px" } }, loc.lat.toFixed(4), ", ", loc.lng.toFixed(4)), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 } }, getTiers(loc).map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--muted)", width: 70 } }, "Up to ", t.maxKm, "km"), /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 90 }, value: t.fee, onChange: (e) => updateLocTier(loc.id, i, { fee: Number(e.target.value) }) }), getTiers(loc).length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeLocTier(loc.id, i), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => addLocTier(loc.id) }, /* @__PURE__ */ React.createElement(Plus, { size: 12 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: loc.active ? "danger" : "accent", onClick: () => updateLoc(loc.id, { active: !loc.active }) }, loc.active ? "Deactivate" : "Activate")))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Delivery areas", sub: "Each area can have multiple distance tiers with their own delivery fee -- e.g. free within 3km, \u20B920 up to 6km, \u20B940 beyond that. Every area here also doubles as a \"kitchen\" that delivery partners pick up from -- there's nothing extra to set up for that." }), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 20, maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 12 } }, "Add a new area"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.name, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "JP Nagar 7th Phase" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: useDeviceLocation, disabled: geoBusy }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " ", geoBusy ? "Locating\u2026" : "Use my current location")), /* @__PURE__ */ React.createElement("div", { className: "form-grid-2" }, /* @__PURE__ */ React.createElement(Field, { label: "Latitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lat, onChange: (e) => setForm({ ...form, lat: e.target.value }), placeholder: "12.9716" })), /* @__PURE__ */ React.createElement(Field, { label: "Longitude" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: form.lng, onChange: (e) => setForm({ ...form, lng: e.target.value }), placeholder: "77.5946" }))), /* @__PURE__ */ React.createElement(Field, { label: "Orders limit per session (blank = use the default capacity)" }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: form.orderLimit, onChange: (e) => setForm({ ...form, orderLimit: e.target.value }), placeholder: "e.g. 20" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 4 } }, "Distance tiers"), form.tiers.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement(Field, { label: "Up to (km)" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.maxKm, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, maxKm: e.target.value } : x) }) })), /* @__PURE__ */ React.createElement(Field, { label: "Fee" }, /* @__PURE__ */ React.createElement("input", { type: "number", style: inputStyle, value: t.fee, onChange: (e) => setForm({ ...form, tiers: form.tiers.map((x, xi) => xi === i ? { ...x, fee: e.target.value } : x) }) })), form.tiers.length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => setForm({ ...form, tiers: form.tiers.filter((_, xi) => xi !== i) }), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer", marginTop: 18 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setForm({ ...form, tiers: [...form.tiers, { maxKm: (form.tiers[form.tiers.length - 1]?.maxKm || 0) + 2, fee: 0 }] }) }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, style: { marginTop: 14 }, onClick: addLocation }, "Add area")), /* @__PURE__ */ React.createElement("div", { className: "responsive-grid" }, locations.map((loc) => /* @__PURE__ */ React.createElement(Card, { key: loc.id }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, loc.name), /* @__PURE__ */ React.createElement("button", { onClick: () => removeLoc(loc.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)", margin: "4px 0 10px" } }, loc.lat.toFixed(4), ", ", loc.lng.toFixed(4)), /* @__PURE__ */ React.createElement(Field, { label: "Orders limit per session" }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: loc.orderLimit ?? "", onChange: (e) => updateLoc(loc.id, { orderLimit: e.target.value === "" ? null : Number(e.target.value) }), placeholder: "Uses default capacity" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10, marginTop: 10 } }, getTiers(loc).map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: "var(--muted)", width: 70 } }, "Up to ", t.maxKm, "km"), /* @__PURE__ */ React.createElement("input", { type: "number", style: { ...inputStyle, width: 90 }, value: t.fee, onChange: (e) => updateLocTier(loc.id, i, { fee: Number(e.target.value) }) }), getTiers(loc).length > 1 && /* @__PURE__ */ React.createElement("button", { onClick: () => removeLocTier(loc.id, i), style: { background: "none", border: "none", color: "var(--clay)", cursor: "pointer" } }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => addLocTier(loc.id) }, /* @__PURE__ */ React.createElement(Plus, { size: 12 }), " Add tier")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: loc.active ? "danger" : "accent", onClick: () => updateLoc(loc.id, { active: !loc.active }) }, loc.active ? "Deactivate" : "Activate")))));
   }
-  function AdminSchedule({ config, orders, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
+  function AdminSchedule({ config, orders, locations, areaFilter, setAreaFilter, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
     const [capacityDraft, setCapacityDraft] = useState({});
+    const activeAreas = locations.filter((l) => l.active);
+    const areaLabel = areaFilter ? (activeAreas.find((l) => l.id === areaFilter)?.name || "this area") : "all areas";
     const days = Array.from({ length: 21 }, (_, i) => addDays(todayStr(), i));
+    // Every write below tags the record with the currently-selected area
+    // (areaFilter || undefined -- "" becomes undefined so it's genuinely
+    // absent from the object, not stored as an empty string) so it only
+    // ever affects that one kitchen; leave the selector on "All areas" to
+    // write a blanket rule the way this page always used to work.
     const setOverrideCapacity = (date, session, capacity) => {
-      const next = slotOverrides.filter((o) => !(o.date === date && o.session === session));
-      next.push({ date, session, capacity });
+      const next = slotOverrides.filter((o) => !(o.date === date && o.session === session && (o.kitchenId || "") === areaFilter));
+      next.push({ date, session, capacity, kitchenId: areaFilter || void 0 });
       setSlotOverrides(next);
+      logAudit(`Set ${config.sessions[session].label} capacity to ${capacity} on ${fmtDateLabel(date)} for ${areaLabel}`);
       return persist(K.slotOverrides, next);
     };
     const clearOverrideCapacity = (date, session) => {
-      const next = slotOverrides.filter((o) => !(o.date === date && o.session === session));
+      const next = slotOverrides.filter((o) => !(o.date === date && o.session === session && (o.kitchenId || "") === areaFilter));
       setSlotOverrides(next);
       return persist(K.slotOverrides, next);
     };
     const toggleCancelled = (date, session) => {
-      const exists = cancelledSlots.some((c) => c.date === date && c.session === session);
-      const next = exists ? cancelledSlots.filter((c) => !(c.date === date && c.session === session)) : [...cancelledSlots, { date, session }];
+      const exists = cancelledSlots.some((c) => c.date === date && c.session === session && (c.kitchenId || "") === areaFilter);
+      const next = exists
+        ? cancelledSlots.filter((c) => !(c.date === date && c.session === session && (c.kitchenId || "") === areaFilter))
+        : [...cancelledSlots, { date, session, kitchenId: areaFilter || void 0 }];
       setCancelledSlots(next);
-      logAudit(`${exists ? "Un-cancelled" : "Cancelled"} the ${session} slot on ${fmtDateLabel(date)}`);
+      logAudit(`${exists ? "Un-cancelled" : "Cancelled"} the ${session} slot on ${fmtDateLabel(date)} for ${areaLabel}`);
       return persist(K.cancelledSlots, next);
     };
     const toggleForced = (date, session) => {
-      const exists = forceOpenSlots.some((f) => f.date === date && f.session === session);
-      const next = exists ? forceOpenSlots.filter((f) => !(f.date === date && f.session === session)) : [...forceOpenSlots, { date, session }];
+      const exists = forceOpenSlots.some((f) => f.date === date && f.session === session && (f.kitchenId || "") === areaFilter);
+      const next = exists
+        ? forceOpenSlots.filter((f) => !(f.date === date && f.session === session && (f.kitchenId || "") === areaFilter))
+        : [...forceOpenSlots, { date, session, kitchenId: areaFilter || void 0 }];
       setForceOpenSlots(next);
-      logAudit(`${exists ? "Removed force-open from" : "Force-opened"} the ${session} slot on ${fmtDateLabel(date)}`);
+      logAudit(`${exists ? "Removed force-open from" : "Force-opened"} the ${session} slot on ${fmtDateLabel(date)} for ${areaLabel}`);
       return persist(K.forceOpenSlots, next);
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Schedule", sub: "Override capacity, cancel, or force-open any slot over the next 21 days. Leave a slot alone and it just follows your default settings." }), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", borderBottom: "1px solid var(--ring-strong)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "8px 10px" } }, "Date"), ["morning", "evening"].map((s) => /* @__PURE__ */ React.createElement("th", { key: s, style: { padding: "8px 10px" } }, config.sessions[s].label)))), /* @__PURE__ */ React.createElement("tbody", null, days.map((date) => /* @__PURE__ */ React.createElement("tr", { key: date, style: { borderBottom: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontFamily: "var(--font-mono)", fontSize: 12.5, whiteSpace: "nowrap" } }, fmtDateLabel(date)), ["morning", "evening"].map((session) => {
-      const capacity = resolveCapacity(date, session, config, slotOverrides);
-      const count = slotCount(date, session, orders);
-      const st = sessionState(date, session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 4 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Schedule", sub: `Override capacity, cancel, or force-open any slot over the next 21 days for ${areaLabel}. Leave a slot alone and it just follows your default settings.` }), /* @__PURE__ */ React.createElement("select", { style: { ...inputStyle, width: "auto", padding: "9px 12px" }, value: areaFilter, onChange: (e) => setAreaFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All delivery areas"), activeAreas.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.id }, l.name)))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", borderBottom: "1px solid var(--ring-strong)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "8px 10px" } }, "Date"), ["morning", "evening"].map((s) => /* @__PURE__ */ React.createElement("th", { key: s, style: { padding: "8px 10px" } }, config.sessions[s].label)))), /* @__PURE__ */ React.createElement("tbody", null, days.map((date) => /* @__PURE__ */ React.createElement("tr", { key: date, style: { borderBottom: "1px solid var(--ring)" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 10px", fontFamily: "var(--font-mono)", fontSize: 12.5, whiteSpace: "nowrap" } }, fmtDateLabel(date)), ["morning", "evening"].map((session) => {
+      const capacity = resolveCapacity(date, session, config, slotOverrides, areaFilter, locations);
+      const count = slotCount(date, session, orders, areaFilter);
+      const st = sessionState(date, session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
       const draftKey = `${date}_${session}`;
-      const hasOverride = slotOverrides.some((o) => o.date === date && o.session === session);
-      const isCancelled = cancelledSlots.some((c) => c.date === date && c.session === session);
-      const isForced = forceOpenSlots.some((f) => f.date === date && f.session === session);
+      const hasOverride = slotOverrides.some((o) => o.date === date && o.session === session && (o.kitchenId || "") === areaFilter);
+      const isCancelled = cancelledSlots.some((c) => c.date === date && c.session === session && (c.kitchenId || "") === areaFilter);
+      const isForced = forceOpenSlots.some((f) => f.date === date && f.session === session && (f.kitchenId || "") === areaFilter);
       return /* @__PURE__ */ React.createElement("td", { key: session, style: { padding: "8px 10px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
         "input",
         {
@@ -3064,7 +3097,9 @@
       persist(K.config, next);
     }, placeholder: "dhanush544@okicici" }))), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 420 } }, qrCode ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("img", { src: qrCode, alt: "Current payment QR", style: { width: "100%", maxWidth: 240, borderRadius: 16, border: "1px solid var(--ring)", marginBottom: 14 } }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "center" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => fileRef.current?.click() }, /* @__PURE__ */ React.createElement(Upload, { size: 14 }), " Replace"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: removeQr }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }), " Remove"))) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "20px 0" } }, /* @__PURE__ */ React.createElement(QrCode, { size: 40, color: "var(--muted)", style: { marginBottom: 12 } }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", marginBottom: 14 } }, "No payment QR code uploaded yet."), /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: () => fileRef.current?.click() }, /* @__PURE__ */ React.createElement(Upload, { size: 15 }), " Upload QR code")), /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: "image/*", onChange: onFile, style: { display: "none" } })));
   }
-  function AdminSettings({ config, setConfig, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
+  function AdminSettings({ config, setConfig, locations, areaFilter, setAreaFilter, cancelledSlots, setCancelledSlots, forceOpenSlots, setForceOpenSlots, slotOverrides, setSlotOverrides, logAudit }) {
+    const activeAreas = locations.filter((l) => l.active);
+    const areaLabel = areaFilter ? (activeAreas.find((l) => l.id === areaFilter)?.name || "this area") : "all areas";
     const update = (key, patch) => setConfig({ ...config, sessions: { ...config.sessions, [key]: { ...config.sessions[key], ...patch } } });
     const updateIdentity = (patch) => setConfig({ ...config, ...patch });
     const commitConfig = async () => {
@@ -3105,75 +3140,75 @@
       return updateIdentityNow({ mealChecklist: config.mealChecklist.filter((i) => i.id !== id) });
     };
     const cancelToday = async (key) => {
-      const next = [...cancelledSlots, { date: todayStr(), session: key }];
+      const next = [...cancelledSlots, { date: todayStr(), session: key, kitchenId: areaFilter || void 0 }];
       setCancelledSlots(next);
       await persist(K.cancelledSlots, next);
-      logAudit(`Cancelled today's ${config.sessions[key].label} serving`);
+      logAudit(`Cancelled today's ${config.sessions[key].label} serving for ${areaLabel}`);
     };
     const uncancelToday = async (key) => {
-      const next = cancelledSlots.filter((c) => !(c.date === todayStr() && c.session === key));
+      const next = cancelledSlots.filter((c) => !(c.date === todayStr() && c.session === key && (c.kitchenId || "") === areaFilter));
       setCancelledSlots(next);
       await persist(K.cancelledSlots, next);
-      logAudit(`Reinstated today's ${config.sessions[key].label} serving`);
+      logAudit(`Reinstated today's ${config.sessions[key].label} serving for ${areaLabel}`);
     };
     const forceOpenToday = async (key) => {
-      const next = [...forceOpenSlots, { date: todayStr(), session: key }];
+      const next = [...forceOpenSlots, { date: todayStr(), session: key, kitchenId: areaFilter || void 0 }];
       setForceOpenSlots(next);
       await persist(K.forceOpenSlots, next);
-      logAudit(`Manually reopened today's ${config.sessions[key].label} serving`);
+      logAudit(`Manually reopened today's ${config.sessions[key].label} serving for ${areaLabel}`);
     };
     const undoForceOpen = async (key) => {
-      const next = forceOpenSlots.filter((f) => !(f.date === todayStr() && f.session === key));
+      const next = forceOpenSlots.filter((f) => !(f.date === todayStr() && f.session === key && (f.kitchenId || "") === areaFilter));
       setForceOpenSlots(next);
       await persist(K.forceOpenSlots, next);
-      logAudit(`Reverted today's ${config.sessions[key].label} serving to scheduled hours`);
+      logAudit(`Reverted today's ${config.sessions[key].label} serving to scheduled hours for ${areaLabel}`);
     };
     const [pickDate, setPickDate] = useState(todayStr());
     const [pickSession, setPickSession] = useState("morning");
     const [capacityInput, setCapacityInput] = useState("");
-    const currentOverride = slotOverrides.find((o) => o.date === pickDate && o.session === pickSession);
-    const pickIsCancelled = cancelledSlots.some((c) => c.date === pickDate && c.session === pickSession);
-    const pickIsForced = forceOpenSlots.some((f) => f.date === pickDate && f.session === pickSession);
-    const pickState = sessionState(pickDate, pickSession, config, [], cancelledSlots, forceOpenSlots, slotOverrides);
-    const pickCapacity = resolveCapacity(pickDate, pickSession, config, slotOverrides);
+    const currentOverride = slotOverrides.find((o) => o.date === pickDate && o.session === pickSession && (o.kitchenId || "") === areaFilter);
+    const pickIsCancelled = cancelledSlots.some((c) => c.date === pickDate && c.session === pickSession && (c.kitchenId || "") === areaFilter);
+    const pickIsForced = forceOpenSlots.some((f) => f.date === pickDate && f.session === pickSession && (f.kitchenId || "") === areaFilter);
+    const pickState = sessionState(pickDate, pickSession, config, [], cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
+    const pickCapacity = resolveCapacity(pickDate, pickSession, config, slotOverrides, areaFilter, locations);
     const setOverrideCapacity = async () => {
       const cap = Number(capacityInput);
       if (Number.isNaN(cap) || cap < 0) return;
-      const next = [...slotOverrides.filter((o) => !(o.date === pickDate && o.session === pickSession)), { date: pickDate, session: pickSession, capacity: cap }];
+      const next = [...slotOverrides.filter((o) => !(o.date === pickDate && o.session === pickSession && (o.kitchenId || "") === areaFilter)), { date: pickDate, session: pickSession, capacity: cap, kitchenId: areaFilter || void 0 }];
       setSlotOverrides(next);
       await persist(K.slotOverrides, next);
-      logAudit(`Set ${config.sessions[pickSession].label} capacity on ${pickDate} to ${cap}`);
+      logAudit(`Set ${config.sessions[pickSession].label} capacity on ${pickDate} to ${cap} for ${areaLabel}`);
       setCapacityInput("");
     };
     const clearOverrideCapacity = async () => {
-      const next = slotOverrides.filter((o) => !(o.date === pickDate && o.session === pickSession));
+      const next = slotOverrides.filter((o) => !(o.date === pickDate && o.session === pickSession && (o.kitchenId || "") === areaFilter));
       setSlotOverrides(next);
       await persist(K.slotOverrides, next);
-      logAudit(`Reset ${config.sessions[pickSession].label} capacity on ${pickDate} to the default`);
+      logAudit(`Reset ${config.sessions[pickSession].label} capacity on ${pickDate} to the default for ${areaLabel}`);
     };
     const cancelPickedDate = async () => {
-      const next = [...cancelledSlots, { date: pickDate, session: pickSession }];
+      const next = [...cancelledSlots, { date: pickDate, session: pickSession, kitchenId: areaFilter || void 0 }];
       setCancelledSlots(next);
       await persist(K.cancelledSlots, next);
-      logAudit(`Cancelled the ${config.sessions[pickSession].label} serving on ${pickDate}`);
+      logAudit(`Cancelled the ${config.sessions[pickSession].label} serving on ${pickDate} for ${areaLabel}`);
     };
     const uncancelPickedDate = async () => {
-      const next = cancelledSlots.filter((c) => !(c.date === pickDate && c.session === pickSession));
+      const next = cancelledSlots.filter((c) => !(c.date === pickDate && c.session === pickSession && (c.kitchenId || "") === areaFilter));
       setCancelledSlots(next);
       await persist(K.cancelledSlots, next);
-      logAudit(`Reinstated the ${config.sessions[pickSession].label} serving on ${pickDate}`);
+      logAudit(`Reinstated the ${config.sessions[pickSession].label} serving on ${pickDate} for ${areaLabel}`);
     };
     const forceOpenPickedDate = async () => {
-      const next = [...forceOpenSlots, { date: pickDate, session: pickSession }];
+      const next = [...forceOpenSlots, { date: pickDate, session: pickSession, kitchenId: areaFilter || void 0 }];
       setForceOpenSlots(next);
       await persist(K.forceOpenSlots, next);
-      logAudit(`Manually opened the ${config.sessions[pickSession].label} serving on ${pickDate}`);
+      logAudit(`Manually opened the ${config.sessions[pickSession].label} serving on ${pickDate} for ${areaLabel}`);
     };
     const undoForceOpenPickedDate = async () => {
-      const next = forceOpenSlots.filter((f) => !(f.date === pickDate && f.session === pickSession));
+      const next = forceOpenSlots.filter((f) => !(f.date === pickDate && f.session === pickSession && (f.kitchenId || "") === areaFilter));
       setForceOpenSlots(next);
       await persist(K.forceOpenSlots, next);
-      logAudit(`Reverted the ${config.sessions[pickSession].label} serving on ${pickDate} to scheduled hours`);
+      logAudit(`Reverted the ${config.sessions[pickSession].label} serving on ${pickDate} to scheduled hours for ${areaLabel}`);
     };
     const toggleOrdering = async () => {
       const next = { ...config, orderingPaused: !config.orderingPaused };
@@ -3190,11 +3225,11 @@
         onBlur: commitConfig,
         placeholder: "A pinch of salt, turmeric and ghee will be added."
       }
-    ), /* @__PURE__ */ React.createElement("button", { onClick: () => removeChecklistItem(item.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 })))), (config.mealChecklist || []).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No checklist items yet.")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 12 }, onClick: addChecklistItem }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add item")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 } }, "Default schedule & today"), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
+    ), /* @__PURE__ */ React.createElement("button", { onClick: () => removeChecklistItem(item.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 15 })))), (config.mealChecklist || []).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No checklist items yet.")), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 12 }, onClick: addChecklistItem }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add item")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase" } }, "Default schedule & today \u2014 ", areaLabel), /* @__PURE__ */ React.createElement("select", { style: { ...inputStyle, width: "auto", padding: "8px 12px" }, value: areaFilter, onChange: (e) => setAreaFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All delivery areas"), activeAreas.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.id }, l.name)))), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
-      const st = sessionState(todayStr(), key, config, [], cancelledSlots, forceOpenSlots, slotOverrides);
-      const isCancelled = cancelledSlots.some((c) => c.date === todayStr() && c.session === key);
-      const isForced = forceOpenSlots.some((f) => f.date === todayStr() && f.session === key);
+      const st = sessionState(todayStr(), key, config, [], cancelledSlots, forceOpenSlots, slotOverrides, areaFilter, locations);
+      const isCancelled = cancelledSlots.some((c) => c.date === todayStr() && c.session === key && (c.kitchenId || "") === areaFilter);
+      const isForced = forceOpenSlots.some((f) => f.date === todayStr() && f.session === key && (f.kitchenId || "") === areaFilter);
       return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17, marginBottom: 12 } }, sess.label, " session"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Serving time" }, /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle, value: sess.servingTime, onChange: (e) => update(key, { servingTime: e.target.value }), onBlur: commitConfig })), /* @__PURE__ */ React.createElement(Field, { label: "Orders close at" }, /* @__PURE__ */ React.createElement("input", { type: "time", style: inputStyle, value: sess.closeTime, onChange: (e) => update(key, { closeTime: e.target.value }), onBlur: commitConfig })), /* @__PURE__ */ React.createElement(Field, { label: "Default capacity (orders)" }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: sess.capacity, onChange: (e) => update(key, { capacity: Number(e.target.value) }), onBlur: commitConfig }))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--ring-strong)", display: "flex", flexDirection: "column", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, "Today's status: ", /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[st].tone }, STATE_STYLE[st].label)), isCancelled ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => uncancelToday(key) }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reinstate today's session") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => cancelToday(key) }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Cancel today's session"), !isCancelled && (isForced ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => undoForceOpen(key) }, /* @__PURE__ */ React.createElement(Clock, { size: 13 }), " Revert to scheduled hours") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => forceOpenToday(key) }, /* @__PURE__ */ React.createElement(Unlock, { size: 13 }), " Open this slot now"))));
     })), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)", marginTop: 16, marginBottom: 28, maxWidth: 560 } }, `Every field above saves itself automatically (as soon as you click away from it, or immediately for toggles) \u2014 there's nothing separate to save. Reducing capacity below the number of orders already placed will never cancel those confirmed orders \u2014 it only blocks new ones. "Open this slot now" overrides today's close time so customers can keep ordering past the scheduled cutoff, until it's full or you revert it.`), /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Future dates & slots", sub: "Override capacity, or cancel / force-open, for any specific date instead of just today. Customers can currently book up to 14 days ahead." }), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 460 } }, /* @__PURE__ */ React.createElement("div", { className: "form-grid-2", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement(Field, { label: "Date" }, /* @__PURE__ */ React.createElement("input", { type: "date", style: inputStyle, value: pickDate, min: todayStr(), onChange: (e) => setPickDate(e.target.value) })), /* @__PURE__ */ React.createElement(Field, { label: "Session" }, /* @__PURE__ */ React.createElement("select", { style: inputStyle, value: pickSession, onChange: (e) => setPickSession(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "morning" }, config.sessions.morning.label), /* @__PURE__ */ React.createElement("option", { value: "evening" }, config.sessions.evening.label)))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5 } }, "Current status:"), /* @__PURE__ */ React.createElement(Pill, { tone: STATE_STYLE[pickState].tone }, STATE_STYLE[pickState].label), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" } }, "Capacity: ", pickCapacity, " ", currentOverride ? "(custom)" : "(default)")), /* @__PURE__ */ React.createElement(Field, { label: `Set capacity for ${fmtDateLabel(pickDate)} \u2014 ${config.sessions[pickSession].label}` }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { type: "number", min: 0, style: inputStyle, value: capacityInput, onChange: (e) => setCapacityInput(e.target.value), placeholder: String(pickCapacity) }), /* @__PURE__ */ React.createElement(Btn, { onClick: setOverrideCapacity, style: { padding: "10px 20px" } }, "Set"))), currentOverride && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 8 }, onClick: clearOverrideCapacity }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reset to default capacity"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px dashed var(--ring-strong)" } }, pickIsCancelled ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: uncancelPickedDate }, /* @__PURE__ */ React.createElement(RefreshCw, { size: 13 }), " Reinstate this serving") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: cancelPickedDate }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Cancel this serving"), !pickIsCancelled && (pickIsForced ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: undoForceOpenPickedDate }, /* @__PURE__ */ React.createElement(Clock, { size: 13 }), " Revert to scheduled hours") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: forceOpenPickedDate }, /* @__PURE__ */ React.createElement(Unlock, { size: 13 }), " Force this slot open")))));
   }
@@ -3384,7 +3419,7 @@
     const nextLabel = order.status === "OUT_FOR_DELIVERY" ? "Mark Delivered" : null;
     return /* @__PURE__ */ React.createElement(Card, { key: order.id, style: { padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 14.5 } }, order.dogSnapshot.name, "'s meal \xB7 ", order.customerName), order.customerAddress && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", marginTop: 2 } }, order.customerAddress.label, " \u2014 ", order.customerAddress.address), order.customerPhone && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement(CopyableText, { text: order.customerPhone, title: "Tap to copy phone number" })), order.deliveryNote && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, marginTop: 6, padding: "6px 8px", background: "var(--tone-warn-bg)", borderRadius: 8 } }, order.deliveryNote), order.leaveAtDoor && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, marginTop: 4, color: "var(--muted)" } }, "Leave at the door")), /* @__PURE__ */ React.createElement(Pill, { tone: order.status === "DELIVERED" ? "good" : "default" }, STATUS_LABEL[order.status])), nextLabel && /* @__PURE__ */ React.createElement(Btn, { small: true, style: { marginTop: 10 }, onClick: () => onAdvance(order), loadingText: "Updating\u2026" }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " ", nextLabel));
   }
-  function DeliveryView({ orders, setOrders, config, locations, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, onRefresh }) {
+  function DeliveryView({ orders, setOrders, config, locations, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, deliveryAreaPref, setDeliveryAreaPref, onRefresh }) {
     const [refreshing, setRefreshing] = useState(false);
     const [dateIdx, setDateIdx] = useState(0);
     const [claimError, setClaimError] = useState(null);
@@ -3599,10 +3634,11 @@
       const routeUrl = buildRouteUrl(deliverable, kitchenOrigin);
       return /* @__PURE__ */ React.createElement("div", null, header, errorCard, earningsCard, /* @__PURE__ */ React.createElement(Card, { style: { margin: "14px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19 } }, kitchen?.name || myClaim.kitchenId), /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, rupee(payable), " payable")), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", marginBottom: 12 } }, fmtDateLabel(myClaim.date), " \xB7 ", config.sessions?.[myClaim.session]?.label || myClaim.session, " \xB7 ", kitchenOrders.length, " order", kitchenOrders.length === 1 ? "" : "s", preparingCount > 0 ? ` \xB7 ${preparingCount} still preparing` : "", deliveredCount > 0 ? ` \xB7 ${deliveredCount} delivered` : ""), !myClaim.arrivedAtKitchen ? /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => arriveAtKitchen(myClaim), loadingText: "Notifying\u2026" }, /* @__PURE__ */ React.createElement(MapPin, { size: 13 }), " I've arrived at the kitchen") : deliverable.length > 0 ? /* @__PURE__ */ React.createElement("a", { href: routeUrl || void 0, target: "_blank", rel: "noopener noreferrer", style: { textDecoration: "none" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !routeUrl }, /* @__PURE__ */ React.createElement(Navigation, { size: 13 }), " Round-trip route for ", deliverable.length, " stop", deliverable.length === 1 ? "" : "s")) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "Admin's been notified you're at the kitchen. Once orders are handed to you and marked Out for Delivery, they'll show up here with a route."), visibleOrders.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 14 } }, visibleOrders.map((o) => o.status === "OUT_FOR_DELIVERY" ? /* @__PURE__ */ React.createElement(DeliveryOrderRow, { key: o.id, order: o, onAdvance: advanceOrderStatus }) : /* @__PURE__ */ React.createElement(Card, { key: o.id, style: { padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14 } }, o.dogSnapshot.name, "'s meal \xB7 ", o.customerName), /* @__PURE__ */ React.createElement(Pill, { tone: "default" }, STATUS_LABEL[o.status])))), deliverable.length > 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--muted)", marginTop: 14, marginBottom: 0 } }, "You can't release this kitchen while an order is out for delivery -- mark it Delivered first.") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 14 }, onClick: () => releaseKitchen(myClaim), loadingText: "Releasing\u2026" }, "Release this kitchen")));
     }
-    return /* @__PURE__ */ React.createElement("div", null, header, errorCard, completedCard, earningsCard, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, margin: "14px 0" } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
+    return /* @__PURE__ */ React.createElement("div", null, header, errorCard, completedCard, earningsCard, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, margin: "14px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, dashDates.map((d, i) => /* @__PURE__ */ React.createElement("button", { key: d, onClick: () => setDateIdx(i), className: "date-chip" + (i === dateIdx ? " active" : "") }, dashDateLabels[i]))), activeKitchens.length > 1 && /* @__PURE__ */ React.createElement("select", { style: { ...inputStyle, width: "auto", padding: "8px 12px" }, value: deliveryAreaPref, onChange: (e) => setDeliveryAreaPref?.(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Show all kitchens"), activeKitchens.map((l) => /* @__PURE__ */ React.createElement("option", { key: l.id, value: l.id }, "Usually work: ", l.name)))), /* @__PURE__ */ React.createElement("div", { className: "session-grid" }, ["morning", "evening"].map((key) => {
       const sess = config.sessions[key];
       const sessionOrders = orders.filter((o) => o.date === selectedDate && o.session === key && o.status !== "CANCELLED");
-      return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 12px" } }, "Serving ", fmtTime(sess.servingTime)), activeKitchens.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No delivery areas are set up yet -- ask admin to add one.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, activeKitchens.map((kitchen) => {
+      const visibleKitchens = deliveryAreaPref ? activeKitchens.filter((k) => k.id === deliveryAreaPref) : activeKitchens;
+      return /* @__PURE__ */ React.createElement(Card, { key }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, sess.label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)", margin: "3px 0 12px" } }, "Serving ", fmtTime(sess.servingTime)), activeKitchens.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", margin: 0 } }, "No delivery areas are set up yet -- ask admin to add one.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, visibleKitchens.map((kitchen) => {
         const kitchenOrders = sessionOrders.filter((o) => o.kitchenId === kitchen.id);
         // Match by the actual date/session/kitchen fields, never by
         // reconstructing an id string -- see the matching backend actions
@@ -3621,7 +3657,14 @@
         const summaryText = allServed
           ? `${kitchenOrders.length} order${kitchenOrders.length === 1 ? "" : "s"} served`
           : /* @__PURE__ */ React.createElement(React.Fragment, null, confirmedCount, " confirmed \xB7 ", readyCount, " ready to pick up \xB7 ", rupee(payable), " payable");
-        return /* @__PURE__ */ React.createElement("div", { key: kitchen.id, style: { border: "1px solid var(--ring)", borderRadius: 12, padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, kitchen.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "var(--muted)", marginTop: 2 } }, summaryText)), allServed ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "Completed") : isTaken ? /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "Claimed by ", claim.partnerName) : !isReady ? /* @__PURE__ */ React.createElement(Pill, null, "Not ready yet") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !!myClaim || claimingBusy, onClick: () => claimKitchen(selectedDate, key, kitchen.id), loadingText: "Claiming\u2026" }, /* @__PURE__ */ React.createElement(Truck, { size: 13 }), " Claim")));
+        // Directions to the kitchen itself (not to any delivery stops) --
+        // so a partner can compare how far each kitchen is before deciding
+        // which one to claim. No origin is set; opening this on a phone
+        // has Google Maps use the device's current location automatically.
+        const kitchenDirectionsUrl = typeof kitchen.lat === "number" && typeof kitchen.lng === "number"
+          ? `https://www.google.com/maps/dir/?api=1&destination=${kitchen.lat},${kitchen.lng}&travelmode=driving`
+          : null;
+        return /* @__PURE__ */ React.createElement("div", { key: kitchen.id, style: { border: "1px solid var(--ring)", borderRadius: 12, padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14.5 } }, kitchen.name), kitchenDirectionsUrl && /* @__PURE__ */ React.createElement("a", { href: kitchenDirectionsUrl, target: "_blank", rel: "noopener noreferrer", style: { fontSize: 12, color: "var(--leaf)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 3 } }, /* @__PURE__ */ React.createElement(Navigation, { size: 11 }), " Directions")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "var(--muted)", marginTop: 2 } }, summaryText)), allServed ? /* @__PURE__ */ React.createElement(Pill, { tone: "good" }, "Completed") : isTaken ? /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, "Claimed by ", claim.partnerName) : !isReady ? /* @__PURE__ */ React.createElement(Pill, null, "Not ready yet") : /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", disabled: !!myClaim || claimingBusy, onClick: () => claimKitchen(selectedDate, key, kitchen.id), loadingText: "Claiming\u2026" }, /* @__PURE__ */ React.createElement(Truck, { size: 13 }), " Claim")));
       })));
     })));
   }
@@ -3987,6 +4030,16 @@
     const [forceOpenSlots, setForceOpenSlots] = useState([]);
     const [slotOverrides, setSlotOverrides] = useState([]);
     const [locations, setLocations] = useState(SEED_LOCATIONS);
+    // The admin's currently-selected delivery area, shared across
+    // Dashboard/Schedule/Settings and remembered across a page refresh via
+    // localStorage (see the load/save effects further down). "" = All
+    // delivery areas.
+    const [adminAreaFilter, setAdminAreaFilterState] = useState("");
+    const setAdminAreaFilter = (value) => {
+      setAdminAreaFilterState(value);
+      window.storage.set("dfp:adminAreaFilter", value, false).catch(() => {
+      });
+    };
     const [communityTopics, setCommunityTopics] = useState([]);
     const [communityPosts, setCommunityPosts] = useState([]);
     const [communityComments, setCommunityComments] = useState([]);
@@ -4017,6 +4070,17 @@
     const [deliveryPartnerId, setDeliveryPartnerId] = useState("");
     const [deliveryName, setDeliveryName] = useState("");
     const [deliveryPhone, setDeliveryPhone] = useState("");
+    // A delivery partner's own remembered "usual kitchen" preference --
+    // entirely separate from the admin's own area filter above, just a
+    // convenience so someone who always works the same area doesn't have
+    // to re-pick it every time. Remembered across a refresh via
+    // localStorage, same as the admin one.
+    const [deliveryAreaPref, setDeliveryAreaPrefState] = useState("");
+    const setDeliveryAreaPref = (value) => {
+      setDeliveryAreaPrefState(value);
+      window.storage.set("dfp:deliveryAreaPref", value, false).catch(() => {
+      });
+    };
     const [deliveryPartners, setDeliveryPartners] = useState([]);
     const [sessionClaims, setSessionClaims] = useState([]);
     const [partnerAuthOpen, setPartnerAuthOpen] = useState(false);
@@ -4134,6 +4198,16 @@
         try {
           const unlocked = await window.storage.get("dfp:adminUnlocked", false);
           if (unlocked?.value === "true") setAdminUnlocked(true);
+        } catch {
+        }
+        try {
+          const savedAreaFilter = await window.storage.get("dfp:adminAreaFilter", false);
+          if (savedAreaFilter?.value) setAdminAreaFilterState(savedAreaFilter.value);
+        } catch {
+        }
+        try {
+          const savedDeliveryAreaPref = await window.storage.get("dfp:deliveryAreaPref", false);
+          if (savedDeliveryAreaPref?.value) setDeliveryAreaPref(savedDeliveryAreaPref.value);
         } catch {
         }
         try {
@@ -4881,11 +4955,14 @@
         onOpenAuth: openAuth,
         markLocalEdit
       }
-    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
+    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
       AdminSchedule,
       {
         config,
         orders,
+        locations,
+        areaFilter: adminAreaFilter,
+        setAreaFilter: setAdminAreaFilter,
         cancelledSlots,
         setCancelledSlots: setCancelledSlotsT,
         forceOpenSlots,
@@ -4894,7 +4971,7 @@
         setSlotOverrides: setSlotOverridesT,
         logAudit
       }
-    ), role === "admin" && tab === "payments" && /* @__PURE__ */ React.createElement(AdminPayments, { qrCode, setQrCode, config, setConfig: setConfigT, logAudit }), role === "admin" && tab === "delivery" && /* @__PURE__ */ React.createElement(AdminDelivery, { deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh: refresh }), role === "delivery" && tab === "delivery" && /* @__PURE__ */ React.createElement(DeliveryView, { orders, setOrders: setOrdersT, config, locations, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, onRefresh: refresh }), role === "admin" && tab === "faq" && /* @__PURE__ */ React.createElement(AdminFAQ, { faqs, setFaqs, logAudit }), role === "admin" && tab === "community" && /* @__PURE__ */ React.createElement(AdminCommunity, { communityPosts, setCommunityPosts: setCommunityPostsT, communityLoaded, logAudit }), role === "admin" && tab === "communityTopics" && /* @__PURE__ */ React.createElement(AdminCommunityTopics, { communityTopics, setCommunityTopics: setCommunityTopicsT, communityLoaded, logAudit }), role === "admin" && tab === "data" && /* @__PURE__ */ React.createElement(AdminData, { orders, setOrders: setOrdersT, dogs, setDogs: setDogsT, communityPosts, setCommunityPosts: setCommunityPostsT, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos: setProfilePhotosT, carts, setCarts: setCartsT, allAddresses: addresses, setAllAddresses: setAddressesT, audit, logAudit }), role === "admin" && tab === "settings" && /* @__PURE__ */ React.createElement(AdminSettings, { config, setConfig: setConfigT, cancelledSlots, setCancelledSlots: setCancelledSlotsT, forceOpenSlots, setForceOpenSlots: setForceOpenSlotsT, slotOverrides, setSlotOverrides: setSlotOverridesT, logAudit }), role === "admin" && tab === "audit" && /* @__PURE__ */ React.createElement(AdminAudit, { audit }))), role === "customer" && /* @__PURE__ */ React.createElement(ChatWidget, { faqs }));
+    ), role === "admin" && tab === "payments" && /* @__PURE__ */ React.createElement(AdminPayments, { qrCode, setQrCode, config, setConfig: setConfigT, logAudit }), role === "admin" && tab === "delivery" && /* @__PURE__ */ React.createElement(AdminDelivery, { deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh: refresh }), role === "delivery" && tab === "delivery" && /* @__PURE__ */ React.createElement(DeliveryView, { orders, setOrders: setOrdersT, config, locations, sessionClaims, setSessionClaims, deliveryPartnerId, deliveryName, deliveryAreaPref, setDeliveryAreaPref, onRefresh: refresh }), role === "admin" && tab === "faq" && /* @__PURE__ */ React.createElement(AdminFAQ, { faqs, setFaqs, logAudit }), role === "admin" && tab === "community" && /* @__PURE__ */ React.createElement(AdminCommunity, { communityPosts, setCommunityPosts: setCommunityPostsT, communityLoaded, logAudit }), role === "admin" && tab === "communityTopics" && /* @__PURE__ */ React.createElement(AdminCommunityTopics, { communityTopics, setCommunityTopics: setCommunityTopicsT, communityLoaded, logAudit }), role === "admin" && tab === "data" && /* @__PURE__ */ React.createElement(AdminData, { orders, setOrders: setOrdersT, dogs, setDogs: setDogsT, communityPosts, setCommunityPosts: setCommunityPostsT, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos: setProfilePhotosT, carts, setCarts: setCartsT, allAddresses: addresses, setAllAddresses: setAddressesT, audit, logAudit }), role === "admin" && tab === "settings" && /* @__PURE__ */ React.createElement(AdminSettings, { config, setConfig: setConfigT, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, cancelledSlots, setCancelledSlots: setCancelledSlotsT, forceOpenSlots, setForceOpenSlots: setForceOpenSlotsT, slotOverrides, setSlotOverrides: setSlotOverridesT, logAudit }), role === "admin" && tab === "audit" && /* @__PURE__ */ React.createElement(AdminAudit, { audit }))), role === "customer" && /* @__PURE__ */ React.createElement(ChatWidget, { faqs }));
   }
   function Header({ role, requestAdmin, setRole, setTab, adminUnlocked, lockAdmin, requestDelivery, deliveryName, partnerSignOut, myName, myPhoto, openAuth, signOut, goToProfile, config, theme, toggleTheme, notifications, notifOpen, setNotifOpen, lastReadTs, setLastReadTs, customerNotifications, customerNotifOpen, setCustomerNotifOpen, customerLastReadTs, setCustomerLastReadTs }) {
     const unreadCount = notifications.filter((n) => n.ts > lastReadTs).length;
