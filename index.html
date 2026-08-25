@@ -362,7 +362,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "5.2.0";
+  const APP_VERSION = "5.3.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2690,7 +2690,30 @@
   function ContactView({ config }) {
     const hasEmail = !!config.contactEmail;
     const hasPhone = !!config.contactPhone;
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Customer", title: "Contact us" }), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 440 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 14 } }, config.serviceName), !hasEmail && !hasPhone ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", margin: 0 } }, "Contact details haven't been added yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, hasEmail && /* @__PURE__ */ React.createElement("a", { href: `mailto:${config.contactEmail}`, style: { display: "flex", alignItems: "center", gap: 10, color: "var(--ink)", textDecoration: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--surface-muted)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Mail, { size: 16, color: "var(--leaf)" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5 } }, config.contactEmail)), hasPhone && /* @__PURE__ */ React.createElement("a", { href: `tel:${config.contactPhone.replace(/\s+/g, "")}`, style: { display: "flex", alignItems: "center", gap: 10, color: "var(--ink)", textDecoration: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--surface-muted)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Phone, { size: 16, color: "var(--leaf)" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5 } }, config.contactPhone)))), config.aboutUs && /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 440, marginTop: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "About us"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--ink)", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, config.aboutUs)));
+    const P = (text) => /* @__PURE__ */ React.createElement("p", { style: { fontSize: 15, color: "var(--ink)", margin: "0 0 14px", lineHeight: 1.7 } }, text);
+    const Emphasis = (text) => /* @__PURE__ */ React.createElement("p", { style: { fontSize: 15, color: "var(--ink)", margin: "0 0 14px", lineHeight: 1.7, fontWeight: 700 } }, text);
+    const Heading = (text) => /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 20, margin: "26px 0 12px" } }, text);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Customer", title: "About Us" }), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 620, marginBottom: 16 } },
+      Heading("Born From a Promise"),
+      P("We didn't start this because we wanted to make another dog food."),
+      P("We started it because we wanted to give our dogs a healthier, happier life."),
+      P("Before Goku, we had two Golden Retrievers who suffered from repeated health problems despite vaccinations, medication, supplements, parasite prevention and good food. We did everything we could, but sadly, we lost them."),
+      Emphasis("Then came Goku."),
+      P("From the very beginning, we were determined to give him the best care possible. We carefully managed his food, vaccinations, parasite prevention and overall health. But despite all our precautions, Goku contracted parvovirus."),
+      P("With the guidance of an experienced pet-clinic team, constant care and an unwavering commitment to his recovery, Goku fought through it."),
+      Emphasis("That experience changed the way we looked at nutrition."),
+      P("We began studying his food far beyond calories and protein \u2014 looking closely at calcium, phosphorus, vitamins, minerals and micronutrients, and how they work together in a balanced diet."),
+      /* @__PURE__ */ React.createElement("p", { style: { fontSize: 15, color: "var(--ink)", margin: "0 0 6px", lineHeight: 1.7 } }, "We started making fresh food for Goku with one simple goal:"),
+      Emphasis("To give him the best nutritional foundation we could, every single day."),
+      P("And when we saw how much care could go into something as simple as a bowl of food, we wanted to make that same care available to other dogs."),
+      Heading("Why We Make This"),
+      P("We know what it means to worry about your dog."),
+      P("We know the pain of losing one, and the joy of getting another chance."),
+      P("Food cannot replace veterinary care, vaccinations or proper medical treatment. But good nutrition is something we can give our dogs every single day."),
+      Emphasis("Because this didn't begin in a factory."),
+      Emphasis("It began with Goku."),
+      /* @__PURE__ */ React.createElement("p", { style: { fontSize: 16, color: "var(--ink)", margin: 0, lineHeight: 1.7, fontWeight: 700, fontFamily: "var(--font-display)" } }, "Made with the same care we'd give our own dog.")
+    ), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 440 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 14 } }, config.serviceName), !hasEmail && !hasPhone ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", margin: 0 } }, "Contact details haven't been added yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, hasEmail && /* @__PURE__ */ React.createElement("a", { href: `mailto:${config.contactEmail}`, style: { display: "flex", alignItems: "center", gap: 10, color: "var(--ink)", textDecoration: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--surface-muted)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Mail, { size: 16, color: "var(--leaf)" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5 } }, config.contactEmail)), hasPhone && /* @__PURE__ */ React.createElement("a", { href: `tel:${config.contactPhone.replace(/\s+/g, "")}`, style: { display: "flex", alignItems: "center", gap: 10, color: "var(--ink)", textDecoration: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--surface-muted)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Phone, { size: 16, color: "var(--leaf)" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5 } }, config.contactPhone)))), config.aboutUs && /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 440, marginTop: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "More from us"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--ink)", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, config.aboutUs)));
   }
   function AdminCommunity({ communityPosts, setCommunityPosts, communityLoaded, logAudit }) {
     const [viewingImages, setViewingImages] = useState(null);
@@ -4025,7 +4048,7 @@
     { id: "order", label: "Order Food", icon: Dog },
     { id: "myorders", label: "My Orders", icon: ClipboardList },
     { id: "community", label: "Community", icon: Users },
-    { id: "contact", label: "Contact", icon: Phone },
+    { id: "contact", label: "About Us", icon: Info },
     { id: "profile", label: "Profile", icon: CircleUser }
   ];
   const ADMIN_TABS = [
