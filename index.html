@@ -380,7 +380,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "5.5.0";
+  const APP_VERSION = "5.6.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2223,7 +2223,7 @@
           if (idx >= 0) setDateIdx(idx);
         }
         if (existing.session && existing.date) {
-          const restoredState = sessionState(existing.date, existing.session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides);
+          const restoredState = sessionState(existing.date, existing.session, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations);
           if (restoredState === "OPEN" || restoredState === "CLOSING_SOON") {
             setSession(existing.session);
           }
