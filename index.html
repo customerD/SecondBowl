@@ -239,6 +239,15 @@
       if (data.error) throw new Error(data.error);
       return data;
     };
+    window.__renewCartHold__ = async function(cartId) {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "renewCartHold", cartId, token: SHEETS_TOKEN })
+      });
+      if (data.error) throw new Error(data.error);
+      return data;
+    };
     window.__signupPartner__ = async function(name, phone, partnerId, passwordHash) {
       const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
@@ -371,7 +380,7 @@
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
   const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "5.4.0";
+  const APP_VERSION = "5.5.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -439,6 +448,10 @@
   }
   async function releaseCartAtomic(cartId) {
     if (window.__releaseCart__) return window.__releaseCart__(cartId);
+    return null;
+  }
+  async function renewCartHoldAtomic(cartId) {
+    if (window.__renewCartHold__) return window.__renewCartHold__(cartId);
     return null;
   }
   async function signupPartner(name, phone, partnerId, passwordHash) {
@@ -2324,6 +2337,38 @@
       window.addEventListener("popstate", onPopState);
       return () => window.removeEventListener("popstate", onPopState);
     }, [stage]);
+    // Keeps the hold alive with a heartbeat for as long as this page is
+    // genuinely still open, and lets it expire (see RESERVATION_MS in
+    // Code.gs) the moment it isn't -- this is the actual safety net, not
+    // any single "did they click X" check, because there's no reliable way
+    // to intercept every way a browser can disappear (refresh, closed tab,
+    // lost signal, force-quit, phone locking...). Whatever the reason the
+    // heartbeat stops, the slot frees itself within a few minutes either
+    // way. Also fires one best-effort release via sendBeacon on the way
+    // out -- sendBeacon is specifically built to still deliver a request
+    // even as the page is being torn down, unlike a normal fetch -- purely
+    // to free the slot a little faster in the common "closed the tab"
+    // case; the heartbeat timeout is what actually guarantees it happens.
+    useEffect(() => {
+      if (stage !== "payment" && stage !== "choosePayment") return;
+      const intervalId = setInterval(() => {
+        if (cartIdRef.current) renewCartHoldAtomic(cartIdRef.current).catch(() => {
+        });
+      }, 45e3);
+      const onPageHide = () => {
+        const cartId = cartIdRef.current;
+        if (!cartId || !navigator.sendBeacon || !SHEETS_API_URL) return;
+        try {
+          navigator.sendBeacon(SHEETS_API_URL, JSON.stringify({ action: "releaseCart", cartId, token: SHEETS_TOKEN }));
+        } catch {
+        }
+      };
+      window.addEventListener("pagehide", onPageHide);
+      return () => {
+        clearInterval(intervalId);
+        window.removeEventListener("pagehide", onPageHide);
+      };
+    }, [stage]);
     useEffect(() => {
       if (!restoredCartRef.current || !myCustomerId || !dog || !session) return;
       clearTimeout(cartSaveTimerRef.current);
@@ -3492,7 +3537,14 @@
       }
     };
     const cartedOrders = useMemo(
-      () => (carts || []).filter((c) => c.status === "awaiting_payment" && c.draftSnapshot).sort((a, b) => (b.reachedPaymentAt || 0) - (a.reachedPaymentAt || 0)),
+      // Only shows holds that are still actually active -- once a
+      // reservation's window has passed (see RESERVATION_MS in Code.gs,
+      // and the payment page's heartbeat that renews it while genuinely
+      // still open), it isn't holding anything anymore, so it shouldn't
+      // keep appearing here as if it were. The underlying row can stick
+      // around in the sheet as inert history; this just stops surfacing
+      // it as something that still needs admin's attention.
+      () => (carts || []).filter((c) => c.status === "awaiting_payment" && c.draftSnapshot && (!c.reservedUntil || c.reservedUntil > Date.now())).sort((a, b) => (b.reachedPaymentAt || 0) - (a.reachedPaymentAt || 0)),
       [carts]
     );
     const [showCarted, setShowCarted] = useState(false);
