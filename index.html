@@ -7,11 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js" crossorigin="anonymous"></script>
 <style>
   html, body { margin: 0; padding: 0; }
   #root { min-height: 100vh; }
@@ -423,7 +423,7 @@
   const Heart = ({ fill, ...p }) => /* @__PURE__ */ React.createElement(Glyph, { e: fill && fill !== "none" ? "\u2665" : "\u2661", ...p });
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
-  const APP_VERSION = "6.7.0";
+  const APP_VERSION = "6.8.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2316,35 +2316,15 @@
     const [uncheckedItems, setUncheckedItems] = useState(/* @__PURE__ */ new Set());
     const [placingCod, setPlacingCod] = useState(false);
     const [stage, setStage] = useState("build");
-    // Reports up to App() whenever a logged-in customer is actively on
-    // the meal-builder screen with a dog selected, so App() knows it's
-    // not safe to silently navigate away (switching tabs, roles, etc.)
-    // without checking first -- App() has no other way to see into this
-    // component's own local ingredient-selection state. Gated on
-    // myCustomerId specifically: someone just browsing before signing up
-    // has nothing tied to an account yet to actually lose, so the warning
-    // shouldn't follow them around.
-    useEffect(() => {
-      onActiveEditingChange?.(!!myCustomerId && stage === "build" && !!dogId);
-      return () => onActiveEditingChange?.(false);
-    }, [stage, dogId, myCustomerId]);
-    // Covers the one case the in-app "leave this order?" confirmation
-    // above can't: closing the tab, refreshing, or typing a new URL
-    // entirely leaves the page rather than navigating within the app, so
-    // there's no React unmount to intercept -- only the browser's own
-    // native "leave site?" prompt can catch that moment. The auto-save
-    // debounce (~1.2s) usually covers routine edits either way; this is
-    // the backstop for whatever hasn't saved yet.
-    useEffect(() => {
-      const handler = (e) => {
-        if (myCustomerId && stage === "build" && dogId) {
-          e.preventDefault();
-          e.returnValue = "";
-        }
-      };
-      window.addEventListener("beforeunload", handler);
-      return () => window.removeEventListener("beforeunload", handler);
-    }, [stage, dogId, myCustomerId]);
+    // Tracks a genuine edit -- not just landing on the page, where dogId
+    // auto-defaults to whichever dog the customer already has saved, and
+    // that alone used to be enough to trigger the "you'll lose your
+    // adjustments" warning even for someone who'd looked at nothing yet.
+    // The first run of this effect is the initial mount with default
+    // values, deliberately not counted; only a real subsequent change to
+    // any of these flips it.
+    const hasInteractedRef = useRef(false);
+    const isFirstEditRunRef = useRef(true);
     const [draftOrder, setDraftOrder] = useState(null);
     const [placed, setPlaced] = useState(null);
     const [slotFullError, setSlotFullError] = useState(false);
@@ -2360,6 +2340,42 @@
     const dogForCalc = dog ? { ...dog, ageMonths: effectiveAgeMonths(dog) } : dog;
     const dates = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i));
     const date = dates[dateIdx];
+    // Reports up to App() whenever a logged-in customer has actually
+    // touched something on the meal-builder screen, so App() knows it's
+    // not safe to silently navigate away (switching tabs, roles, etc.)
+    // without checking first -- App() has no other way to see into this
+    // component's own local ingredient-selection state. Also gated on
+    // orderingPaused: when ordering is paused, this component renders a
+    // "not taking orders" message instead of the builder further below,
+    // but React's rules of hooks still require every hook here to run
+    // regardless -- without this check, the warning could fire even
+    // though there was never anything to adjust in the first place.
+    useEffect(() => {
+      if (isFirstEditRunRef.current) {
+        isFirstEditRunRef.current = false;
+      } else {
+        hasInteractedRef.current = true;
+      }
+      onActiveEditingChange?.(!!myCustomerId && !config.orderingPaused && stage === "build" && hasInteractedRef.current);
+      return () => onActiveEditingChange?.(false);
+    }, [selected, customQty, uncheckedItems, deliveryNote, leaveAtDoor, date, session, stage, myCustomerId, config.orderingPaused]);
+    // Covers the one case the in-app "leave this order?" confirmation
+    // above can't: closing the tab, refreshing, or typing a new URL
+    // entirely leaves the page rather than navigating within the app, so
+    // there's no React unmount to intercept -- only the browser's own
+    // native "leave site?" prompt can catch that moment. The auto-save
+    // debounce (~1.2s) usually covers routine edits either way; this is
+    // the backstop for whatever hasn't saved yet.
+    useEffect(() => {
+      const handler = (e) => {
+        if (myCustomerId && !config.orderingPaused && stage === "build" && hasInteractedRef.current) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      };
+      window.addEventListener("beforeunload", handler);
+      return () => window.removeEventListener("beforeunload", handler);
+    }, [stage, myCustomerId, config.orderingPaused]);
     useEffect(() => {
       if (!dog) return;
       if (sizeQtyInitedForDogRef.current === dog.id) return;
@@ -3047,11 +3063,33 @@
       /* @__PURE__ */ React.createElement("p", { style: { fontSize: 16, color: "var(--ink)", margin: 0, lineHeight: 1.7, fontWeight: 700, fontFamily: "var(--font-display)" } }, "Made with the same care we'd give our own dog.")
     ), /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 440 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, marginBottom: 14 } }, config.serviceName), !hasEmail && !hasPhone ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", margin: 0 } }, "Contact details haven't been added yet.") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, hasEmail && /* @__PURE__ */ React.createElement("a", { href: `mailto:${config.contactEmail}`, style: { display: "flex", alignItems: "center", gap: 10, color: "var(--ink)", textDecoration: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--surface-muted)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Mail, { size: 16, color: "var(--leaf)" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5 } }, config.contactEmail)), hasPhone && /* @__PURE__ */ React.createElement("a", { href: `tel:${config.contactPhone.replace(/\s+/g, "")}`, style: { display: "flex", alignItems: "center", gap: 10, color: "var(--ink)", textDecoration: "none" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--surface-muted)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Phone, { size: 16, color: "var(--leaf)" })), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5 } }, config.contactPhone)))), config.aboutUs && /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 440, marginTop: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 16, marginBottom: 10 } }, "More from us"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--ink)", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, config.aboutUs)));
   }
-  function AdminCommunity({ communityPosts, setCommunityPosts, communityLoaded, logAudit }) {
+  function AdminCommunity({ communityPosts, setCommunityPosts, communityTopics, setCommunityTopics, communityLoaded, logAudit }) {
     const [viewingImages, setViewingImages] = useState(null);
+    const [showTopics, setShowTopics] = useState(false);
     const save = async (next) => {
       setCommunityPosts(next);
       await persist(K.communityPosts, next);
+    };
+    // Topic management -- merged in here from what used to be its own
+    // separate "Topics" tab. Moderating posts and managing the topic list
+    // customers pick from while writing one are the same kind of work, on
+    // the same underlying feature, so there's no real reason for them to
+    // live in two different places in the admin nav.
+    const saveTopics = async (next) => {
+      setCommunityTopics(next);
+      await persist(K.communityTopics, next);
+    };
+    const addTopic = () => saveTopics([...communityTopics, { id: uid("topic_"), name: "", active: true }]);
+    const updateTopicName = (id, name) => setCommunityTopics(communityTopics.map((t) => t.id === id ? { ...t, name } : t));
+    const commitTopics = () => saveTopics(communityTopics);
+    const toggleTopicActive = (id) => {
+      const next = communityTopics.map((t) => t.id === id ? { ...t, active: !t.active } : t);
+      saveTopics(next);
+      logAudit("Updated a Community topic's active state");
+    };
+    const removeTopic = (id) => {
+      saveTopics(communityTopics.filter((t) => t.id !== id));
+      logAudit("Removed a Community topic");
     };
     const pending = communityPosts.filter((p) => p.status === "pending").sort((a, b) => a.createdAt - b.createdAt);
     const reviewed = communityPosts.filter((p) => p.status !== "pending").sort((a, b) => b.createdAt - a.createdAt);
@@ -3075,26 +3113,7 @@
     if (!communityLoaded) {
       return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Community" }), /* @__PURE__ */ React.createElement(LoadingScreen, null));
     }
-    return /* @__PURE__ */ React.createElement("div", null, viewingImages && /* @__PURE__ */ React.createElement(CommunityImageLightbox, { images: viewingImages, startIndex: 0, onClose: () => setViewingImages(null) }), /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Community", sub: "Review posts customers share before they go public. Nothing appears in Community until you approve it here." }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 } }, "Pending review (", pending.length, ")"), pending.length === 0 ? /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 28 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)" } }, "Nothing waiting for review.")) : /* @__PURE__ */ React.createElement("div", { className: "responsive-grid", style: { marginBottom: 28 } }, pending.map((p) => /* @__PURE__ */ React.createElement(PostCard, { key: p.id, p, actions: /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => approve(p) }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " Approve"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => reject(p) }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Reject")) }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 } }, "Reviewed"), reviewed.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)" } }, "Nothing reviewed yet.")) : /* @__PURE__ */ React.createElement("div", { className: "responsive-grid" }, reviewed.map((p) => /* @__PURE__ */ React.createElement(PostCard, { key: p.id, p, actions: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Pill, { tone: p.status === "approved" ? "good" : "bad" }, p.status === "approved" ? "Published" : "Rejected"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => remove(p) }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 }), " Delete"))) }))));
-  }
-  function AdminCommunityTopics({ communityTopics, setCommunityTopics, communityLoaded, logAudit }) {
-    const save = async (next) => {
-      setCommunityTopics(next);
-      await persist(K.communityTopics, next);
-    };
-    const add = () => save([...communityTopics, { id: uid("topic_"), name: "", active: true }]);
-    const updateName = (id, name) => setCommunityTopics(communityTopics.map((t) => t.id === id ? { ...t, name } : t));
-    const commit = () => save(communityTopics);
-    const toggleActive = (id) => {
-      const next = communityTopics.map((t) => t.id === id ? { ...t, active: !t.active } : t);
-      save(next);
-      logAudit("Updated a Community topic's active state");
-    };
-    const remove = (id) => {
-      save(communityTopics.filter((t) => t.id !== id));
-      logAudit("Removed a Community topic");
-    };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Community topics", sub: "Manage the topic list customers choose from when writing a post. Inactive topics stay attached to existing posts but won't be offered for new ones." }), !communityLoaded ? /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 480 } }, /* @__PURE__ */ React.createElement(LoadingScreen, null)) : /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 480 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, communityTopics.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { style: { ...inputStyle, flex: 1, opacity: t.active === false ? 0.5 : 1 }, value: t.name, onChange: (e) => updateName(t.id, e.target.value), onBlur: commit }), /* @__PURE__ */ React.createElement("button", { onClick: () => toggleActive(t.id), style: { background: "none", border: "none", cursor: "pointer", color: t.active === false ? "var(--muted)" : "var(--leaf)", padding: 6 }, title: t.active === false ? "Reactivate" : "Deactivate" }, t.active === false ? /* @__PURE__ */ React.createElement(Unlock, { size: 14 }) : /* @__PURE__ */ React.createElement(Check, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => remove(t.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 12 }, onClick: add }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add topic")));
+    return /* @__PURE__ */ React.createElement("div", null, viewingImages && /* @__PURE__ */ React.createElement(CommunityImageLightbox, { images: viewingImages, startIndex: 0, onClose: () => setViewingImages(null) }), /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Community", sub: "Review posts customers share before they go public. Nothing appears in Community until you approve it here." }), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 20 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setShowTopics((v) => !v) }, /* @__PURE__ */ React.createElement(Tag, { size: 13 }), " ", showTopics ? "Hide topics" : "Manage topics"), showTopics && /* @__PURE__ */ React.createElement(Card, { style: { maxWidth: 480, marginTop: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12.5, color: "var(--muted)", marginBottom: 10 } }, "The topic list customers choose from when writing a post. Inactive topics stay attached to existing posts but won't be offered for new ones."), !communityLoaded ? /* @__PURE__ */ React.createElement(LoadingScreen, null) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, communityTopics.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("input", { style: { ...inputStyle, flex: 1, opacity: t.active === false ? 0.5 : 1 }, value: t.name, onChange: (e) => updateTopicName(t.id, e.target.value), onBlur: commitTopics }), /* @__PURE__ */ React.createElement("button", { onClick: () => toggleTopicActive(t.id), style: { background: "none", border: "none", cursor: "pointer", color: t.active === false ? "var(--muted)" : "var(--leaf)", padding: 6 }, title: t.active === false ? "Reactivate" : "Deactivate" }, t.active === false ? /* @__PURE__ */ React.createElement(Unlock, { size: 14 }) : /* @__PURE__ */ React.createElement(Check, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => removeTopic(t.id), style: { background: "none", border: "none", cursor: "pointer", color: "var(--clay)", padding: 6 } }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", style: { marginTop: 12 }, onClick: addTopic }, /* @__PURE__ */ React.createElement(Plus, { size: 13 }), " Add topic")))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 } }, "Pending review (", pending.length, ")"), pending.length === 0 ? /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 28 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)" } }, "Nothing waiting for review.")) : /* @__PURE__ */ React.createElement("div", { className: "responsive-grid", style: { marginBottom: 28 } }, pending.map((p) => /* @__PURE__ */ React.createElement(PostCard, { key: p.id, p, actions: /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "accent", onClick: () => approve(p) }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " Approve"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "danger", onClick: () => reject(p) }, /* @__PURE__ */ React.createElement(Ban, { size: 13 }), " Reject")) }))), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.05em", color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 } }, "Reviewed"), reviewed.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)" } }, "Nothing reviewed yet.")) : /* @__PURE__ */ React.createElement("div", { className: "responsive-grid" }, reviewed.map((p) => /* @__PURE__ */ React.createElement(PostCard, { key: p.id, p, actions: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Pill, { tone: p.status === "approved" ? "good" : "bad" }, p.status === "approved" ? "Published" : "Rejected"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => remove(p) }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 }), " Delete"))) }))));
   }
   function downloadTextFile(filename, mime, text) {
     const blob = new Blob([text], { type: mime });
@@ -4670,7 +4689,6 @@
     { id: "payments", label: "Payments", icon: QrCode },
     { id: "faq", label: "FAQ", icon: HelpCircle },
     { id: "community", label: "Community", icon: Users },
-    { id: "communityTopics", label: "Topics", icon: Tag },
     { id: "data", label: "Data", icon: Database },
     { id: "settings", label: "Settings", icon: Clock },
     { id: "audit", label: "Audit Log", icon: History }
@@ -5722,7 +5740,7 @@
         setSlotOverrides: setSlotOverridesT,
         logAudit
       }
-    ), role === "admin" && tab === "payments" && /* @__PURE__ */ React.createElement(AdminPayments, { qrCode, setQrCode, config, setConfig: setConfigT, logAudit }), role === "admin" && tab === "delivery" && /* @__PURE__ */ React.createElement(AdminDelivery, { deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh: refresh }), role === "delivery" && tab === "delivery" && /* @__PURE__ */ React.createElement(DeliveryView, { orders, setOrders: setOrdersT, config, locations, sessionClaims, setSessionClaims, deliveryPartners, setDeliveryPartners, deliveryPartnerId, deliveryName, deliveryAreaPref, setDeliveryAreaPref, onRefresh: refresh }), role === "admin" && tab === "faq" && /* @__PURE__ */ React.createElement(AdminFAQ, { faqs, setFaqs, logAudit }), role === "admin" && tab === "community" && /* @__PURE__ */ React.createElement(AdminCommunity, { communityPosts, setCommunityPosts: setCommunityPostsT, communityLoaded, logAudit }), role === "admin" && tab === "communityTopics" && /* @__PURE__ */ React.createElement(AdminCommunityTopics, { communityTopics, setCommunityTopics: setCommunityTopicsT, communityLoaded, logAudit }), role === "admin" && tab === "data" && /* @__PURE__ */ React.createElement(AdminData, { orders, setOrders: setOrdersT, dogs, setDogs: setDogsT, communityPosts, setCommunityPosts: setCommunityPostsT, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos: setProfilePhotosT, carts, setCarts: setCartsT, allAddresses: addresses, setAllAddresses: setAddressesT, audit, logAudit }), role === "admin" && tab === "settings" && /* @__PURE__ */ React.createElement(AdminSettings, { config, setConfig: setConfigT, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, cancelledSlots, setCancelledSlots: setCancelledSlotsT, forceOpenSlots, setForceOpenSlots: setForceOpenSlotsT, slotOverrides, setSlotOverrides: setSlotOverridesT, logAudit }), role === "admin" && tab === "audit" && /* @__PURE__ */ React.createElement(AdminAudit, { audit }))), role === "customer" && /* @__PURE__ */ React.createElement(ChatWidget, { faqs }));
+    ), role === "admin" && tab === "payments" && /* @__PURE__ */ React.createElement(AdminPayments, { qrCode, setQrCode, config, setConfig: setConfigT, logAudit }), role === "admin" && tab === "delivery" && /* @__PURE__ */ React.createElement(AdminDelivery, { deliveryPartners, sessionClaims, setSessionClaims, locations, orders, logAudit, onRefresh: refresh }), role === "delivery" && tab === "delivery" && /* @__PURE__ */ React.createElement(DeliveryView, { orders, setOrders: setOrdersT, config, locations, sessionClaims, setSessionClaims, deliveryPartners, setDeliveryPartners, deliveryPartnerId, deliveryName, deliveryAreaPref, setDeliveryAreaPref, onRefresh: refresh }), role === "admin" && tab === "faq" && /* @__PURE__ */ React.createElement(AdminFAQ, { faqs, setFaqs, logAudit }), role === "admin" && tab === "community" && /* @__PURE__ */ React.createElement(AdminCommunity, { communityPosts, setCommunityPosts: setCommunityPostsT, communityTopics, setCommunityTopics: setCommunityTopicsT, communityLoaded, logAudit }), role === "admin" && tab === "data" && /* @__PURE__ */ React.createElement(AdminData, { orders, setOrders: setOrdersT, dogs, setDogs: setDogsT, communityPosts, setCommunityPosts: setCommunityPostsT, communityComments, setCommunityComments, communityLikes, setCommunityLikes, profilePhotos, setProfilePhotos: setProfilePhotosT, carts, setCarts: setCartsT, allAddresses: addresses, setAllAddresses: setAddressesT, audit, logAudit }), role === "admin" && tab === "settings" && /* @__PURE__ */ React.createElement(AdminSettings, { config, setConfig: setConfigT, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, cancelledSlots, setCancelledSlots: setCancelledSlotsT, forceOpenSlots, setForceOpenSlots: setForceOpenSlotsT, slotOverrides, setSlotOverrides: setSlotOverridesT, logAudit }), role === "admin" && tab === "audit" && /* @__PURE__ */ React.createElement(AdminAudit, { audit }))), role === "customer" && /* @__PURE__ */ React.createElement(ChatWidget, { faqs }));
   }
   function RoleSegmentedControl({ role, setRole, setTab, requestDelivery, requestAdmin, adminUnlocked }) {
     return /* @__PURE__ */ React.createElement("div", { className: "segmented" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
