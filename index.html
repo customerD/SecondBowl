@@ -423,7 +423,7 @@
   const Heart = ({ fill, ...p }) => /* @__PURE__ */ React.createElement(Glyph, { e: fill && fill !== "none" ? "\u2665" : "\u2661", ...p });
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
-  const APP_VERSION = "6.5.0";
+  const APP_VERSION = "6.6.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2280,7 +2280,7 @@
     if (resolved?.ok && phone && !editing) return null;
     return /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ React.createElement(Phone, { size: 17, color: "var(--leaf)" }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 } }, "Contact number")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", margin: "0 0 12px" } }, "We'll use this number to reach you about your order."), /* @__PURE__ */ React.createElement(Field, { label: "Phone number" }, /* @__PURE__ */ React.createElement("input", { style: inputStyle, value: draftPhone, onChange: (e) => setDraftPhone(e.target.value), placeholder: "9876543210" })), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 12 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, onClick: savePhone, loadingText: "Saving\u2026" }, "Save number"), phone && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => setEditing(false) }, "Cancel")));
   }
-  function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhoneChange, dogs, ingredients, breeds, engine, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, qrCode, initialDogId, setOrders, allAddresses, setAllAddresses, carts, setCarts, markLocalEdit, goToOrders }) {
+  function OrderFoodView({ myName, myCustomerId, myPhone, myPhoneLoaded, onMyPhoneChange, dogs, ingredients, breeds, engine, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, qrCode, initialDogId, setOrders, allAddresses, setAllAddresses, carts, setCarts, markLocalEdit, goToOrders, onActiveEditingChange }) {
     const myDogs = dogs.filter((d) => d.owner === myName);
     const [dogId, setDogId] = useState(initialDogId || myDogs[0]?.id || "");
     const [dateIdx, setDateIdx] = useState(0);
@@ -2316,6 +2316,32 @@
     const [uncheckedItems, setUncheckedItems] = useState(/* @__PURE__ */ new Set());
     const [placingCod, setPlacingCod] = useState(false);
     const [stage, setStage] = useState("build");
+    // Reports up to App() whenever the customer is actively on the
+    // meal-builder screen with a dog selected, so App() knows it's not
+    // safe to silently navigate away (switching tabs, roles, etc.)
+    // without checking first -- App() has no other way to see into this
+    // component's own local ingredient-selection state.
+    useEffect(() => {
+      onActiveEditingChange?.(stage === "build" && !!dogId);
+      return () => onActiveEditingChange?.(false);
+    }, [stage, dogId]);
+    // Covers the one case the in-app "leave this order?" confirmation
+    // above can't: closing the tab, refreshing, or typing a new URL
+    // entirely leaves the page rather than navigating within the app, so
+    // there's no React unmount to intercept -- only the browser's own
+    // native "leave site?" prompt can catch that moment. The auto-save
+    // debounce (~1.2s) usually covers routine edits either way; this is
+    // the backstop for whatever hasn't saved yet.
+    useEffect(() => {
+      const handler = (e) => {
+        if (stage === "build" && dogId) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      };
+      window.addEventListener("beforeunload", handler);
+      return () => window.removeEventListener("beforeunload", handler);
+    }, [stage, dogId]);
     const [draftOrder, setDraftOrder] = useState(null);
     const [placed, setPlaced] = useState(null);
     const [slotFullError, setSlotFullError] = useState(false);
@@ -4635,7 +4661,7 @@
   ];
   function App() {
     const [loading, setLoading] = useState(true);
-    const [role, setRole] = useState("customer");
+    const [role, setRoleRaw] = useState("customer");
     const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
     const trackOrderId = urlParams.get("order");
     const resetToken = urlParams.get("resetToken");
@@ -4648,7 +4674,36 @@
       myIdentityRef.current = { name: myName, customerId: myCustomerId };
     }, [myName, myCustomerId]);
     const [welcome, setWelcome] = useState(null);
-    const [tab, setTab] = useState(() => urlParams.get("view") === "myorders" ? "myorders" : urlParams.get("post") ? "community" : "order");
+    const [tab, setTabRaw] = useState(() => urlParams.get("view") === "myorders" ? "myorders" : urlParams.get("post") ? "community" : "order");
+    // Set (not called directly) by OrderFoodView while the customer is
+    // actively on the meal-builder screen with a dog selected -- lets
+    // App() know it's not safe to silently navigate away without asking,
+    // even though App() itself has no visibility into OrderFoodView's own
+    // local ingredient-selection state.
+    const [orderingActive, setOrderingActive] = useState(false);
+    // Holds the requested destination while we wait for the customer to
+    // confirm they want to leave -- set by the guarded setTab/setRole
+    // below instead of navigating immediately.
+    const [navLeaveConfirm, setNavLeaveConfirm] = useState(null);
+    // Every existing call site in this file already just calls
+    // setTab(...)/setRole(...) -- wrapping them here under their original
+    // names means every one of those call sites automatically gets the
+    // "are you sure you want to leave" guard without having to touch each
+    // one individually.
+    const setTab = (next) => {
+      if (orderingActive && role === "customer" && tab === "order" && next !== "order") {
+        setNavLeaveConfirm({ kind: "tab", value: next });
+        return;
+      }
+      setTabRaw(next);
+    };
+    const setRole = (next) => {
+      if (orderingActive && role === "customer" && next !== "customer") {
+        setNavLeaveConfirm({ kind: "role", value: next });
+        return;
+      }
+      setRoleRaw(next);
+    };
     const [pendingDogId, setPendingDogId] = useState(null);
     const [pendingOrderFilter, setPendingOrderFilter] = useState(null);
     const [pendingCommunityPostId, setPendingCommunityPostId] = useState(() => urlParams.get("post") || null);
@@ -5463,7 +5518,11 @@
       return /* @__PURE__ */ React.createElement(TrackOrderView, { orderId: trackOrderId, orders, config, qrCode });
     }
     if (loading) return /* @__PURE__ */ React.createElement(Shell, { theme }, /* @__PURE__ */ React.createElement(LoadingScreen, null));
-    return /* @__PURE__ */ React.createElement(Shell, { theme }, showPwModal && /* @__PURE__ */ React.createElement(PasswordModal, { value: pwInput, setValue: setPwInput, error: pwError, busy: pwVerifying, onSubmit: submitPassword, onCancel: () => setShowPwModal(false) }), showQrPrompt && /* @__PURE__ */ React.createElement(Modal, { onCancel: dismissQrPrompt, maxWidth: 380 }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--turmeric)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(QrCode, { size: 16, color: "#1d1d1f" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, "Add a payment QR code")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 18 } }, "No QR code is set up yet, so customers can't place an order right now. Upload one in Payments to open up ordering."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { full: true, onClick: () => {
+    return /* @__PURE__ */ React.createElement(Shell, { theme }, showPwModal && /* @__PURE__ */ React.createElement(PasswordModal, { value: pwInput, setValue: setPwInput, error: pwError, busy: pwVerifying, onSubmit: submitPassword, onCancel: () => setShowPwModal(false) }), navLeaveConfirm && /* @__PURE__ */ React.createElement(Modal, { onCancel: () => setNavLeaveConfirm(null) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--tone-warn-bg)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(AlertTriangle, { size: 16, color: "var(--tone-warn-fg)" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 } }, "Leave this order?")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 18 } }, "Any ingredient adjustments you've made could be lost if you leave this page before continuing to checkout."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: () => setNavLeaveConfirm(null), full: true }, "Stay on this order"), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", onClick: () => {
+      if (navLeaveConfirm.kind === "tab") setTabRaw(navLeaveConfirm.value);
+      else setRoleRaw(navLeaveConfirm.value);
+      setNavLeaveConfirm(null);
+    }, full: true }, "Leave anyway"))), showQrPrompt && /* @__PURE__ */ React.createElement(Modal, { onCancel: dismissQrPrompt, maxWidth: 380 }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--turmeric)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(QrCode, { size: 16, color: "#1d1d1f" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, "Add a payment QR code")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 18 } }, "No QR code is set up yet, so customers can't place an order right now. Upload one in Payments to open up ordering."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { full: true, onClick: () => {
       setTab("payments");
       dismissQrPrompt();
     } }, "Go to Payments"), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "ghost", onClick: dismissQrPrompt }, "Don't show this again"))), authOpen && /* @__PURE__ */ React.createElement(
@@ -5539,7 +5598,7 @@
         customerLastReadTs,
         setCustomerLastReadTs
       }
-    ), /* @__PURE__ */ React.createElement("div", { className: "mobile-role-segmented" }, /* @__PURE__ */ React.createElement(RoleSegmentedControl, { role, setRole, setTab, requestDelivery, requestAdmin, adminUnlocked })), role === "admin" && adminUnlocked && toast && /* @__PURE__ */ React.createElement("div", { className: "toast-banner", onClick: () => setToast(null) }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " ", toast.text), /* @__PURE__ */ React.createElement("div", { className: "app-layout" }, /* @__PURE__ */ React.createElement("div", { className: "app-nav-wrap" }, role === "customer" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("nav", { className: "app-nav app-nav-primary" }, CUSTOMER_TABS.filter((t) => ["dogs", "order", "myorders"].includes(t.id)).map((t) => {
+    ), !(role === "customer" && myName) && /* @__PURE__ */ React.createElement("div", { className: "mobile-role-segmented" }, /* @__PURE__ */ React.createElement(RoleSegmentedControl, { role, setRole, setTab, requestDelivery, requestAdmin, adminUnlocked })), role === "admin" && adminUnlocked && toast && /* @__PURE__ */ React.createElement("div", { className: "toast-banner", onClick: () => setToast(null) }, /* @__PURE__ */ React.createElement(Bell, { size: 14 }), " ", toast.text), /* @__PURE__ */ React.createElement("div", { className: "app-layout" }, /* @__PURE__ */ React.createElement("div", { className: "app-nav-wrap" }, role === "customer" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("nav", { className: "app-nav app-nav-primary" }, CUSTOMER_TABS.filter((t) => ["dogs", "order", "myorders"].includes(t.id)).map((t) => {
       const Icon = t.icon;
       const active = tab === t.id;
       return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => t.id === "myorders" ? goToMyOrders() : setTab(t.id), className: "nav-btn" + (active ? " active" : "") }, /* @__PURE__ */ React.createElement(Icon, { size: 15 }), " ", t.label);
@@ -5580,7 +5639,8 @@
         carts,
         setCarts,
         markLocalEdit,
-        goToOrders: goToMyOrders
+        goToOrders: goToMyOrders,
+        onActiveEditingChange: setOrderingActive
       }
     ), role === "customer" && tab === "myorders" && /* @__PURE__ */ React.createElement(MyOrdersView, { myName, orders, config, qrCode }), role === "customer" && tab === "contact" && /* @__PURE__ */ React.createElement(ContactView, { config }), role === "customer" && tab === "profile" && /* @__PURE__ */ React.createElement(
       ProfileView,
@@ -5724,7 +5784,7 @@
       },
       /* @__PURE__ */ React.createElement(Bell, { size: 16 }),
       customerUnreadCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "notif-dot" }, customerUnreadCount > 9 ? "9+" : customerUnreadCount)
-    ), customerNotifOpen && /* @__PURE__ */ React.createElement("div", { className: "notif-dropdown" }, /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", borderBottom: "1px solid var(--ring)" } }, "Order updates"), customerNotifications.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { padding: 16, fontSize: 13, color: "var(--muted)" } }, "No updates yet.") : customerNotifications.slice(0, 12).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { padding: "10px 14px", borderBottom: "1px solid var(--ring)", fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, n.text), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--muted)", marginTop: 2 } }, new Date(n.ts).toLocaleTimeString()))))), /* @__PURE__ */ React.createElement("button", { onClick: goToProfile, className: "desktop-profile-chip", style: { display: "flex", alignItems: "center", gap: 6, background: "var(--surface-muted)", border: "none", borderRadius: 980, padding: "7px 12px", cursor: "pointer" } }, myPhoto ? /* @__PURE__ */ React.createElement("img", { src: myPhoto, alt: "", style: { width: 18, height: 18, borderRadius: "50%", objectFit: "cover" } }) : /* @__PURE__ */ React.createElement(CircleUser, { size: 15 }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5, fontWeight: 600 } }, myName)), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: signOut }, /* @__PURE__ */ React.createElement(LogOut, { size: 13 }), " Log out")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => openAuth("login") }, /* @__PURE__ */ React.createElement(CircleUser, { size: 14 }), " Log In"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "outline", onClick: () => openAuth("signup") }, "Sign Up"))), role === "admin" && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: lockAdmin }, /* @__PURE__ */ React.createElement(Lock, { size: 13 }), " Sign out"), role === "delivery" && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: partnerSignOut }, /* @__PURE__ */ React.createElement(LogOut, { size: 13 }), " Sign out"), /* @__PURE__ */ React.createElement("div", { className: "desktop-role-segmented" }, /* @__PURE__ */ React.createElement(RoleSegmentedControl, { role, setRole, setTab, requestDelivery, requestAdmin, adminUnlocked })))));
+    ), customerNotifOpen && /* @__PURE__ */ React.createElement("div", { className: "notif-dropdown" }, /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", color: "var(--muted)", borderBottom: "1px solid var(--ring)" } }, "Order updates"), customerNotifications.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { padding: 16, fontSize: 13, color: "var(--muted)" } }, "No updates yet.") : customerNotifications.slice(0, 12).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, style: { padding: "10px 14px", borderBottom: "1px solid var(--ring)", fontSize: 13 } }, /* @__PURE__ */ React.createElement("div", null, n.text), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--muted)", marginTop: 2 } }, new Date(n.ts).toLocaleTimeString()))))), /* @__PURE__ */ React.createElement("button", { onClick: goToProfile, className: "desktop-profile-chip", style: { display: "flex", alignItems: "center", gap: 6, background: "var(--surface-muted)", border: "none", borderRadius: 980, padding: "7px 12px", cursor: "pointer" } }, myPhoto ? /* @__PURE__ */ React.createElement("img", { src: myPhoto, alt: "", style: { width: 18, height: 18, borderRadius: "50%", objectFit: "cover" } }) : /* @__PURE__ */ React.createElement(CircleUser, { size: 15 }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5, fontWeight: 600 } }, myName)), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: signOut }, /* @__PURE__ */ React.createElement(LogOut, { size: 13 }), " Log out")) : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: () => openAuth("login") }, /* @__PURE__ */ React.createElement(CircleUser, { size: 14 }), " Log In"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "outline", onClick: () => openAuth("signup") }, "Sign Up"))), role === "admin" && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: lockAdmin }, /* @__PURE__ */ React.createElement(Lock, { size: 13 }), " Sign out"), role === "delivery" && /* @__PURE__ */ React.createElement(Btn, { small: true, variant: "ghost", onClick: partnerSignOut }, /* @__PURE__ */ React.createElement(LogOut, { size: 13 }), " Sign out"), !(role === "customer" && myName) && /* @__PURE__ */ React.createElement("div", { className: "desktop-role-segmented" }, /* @__PURE__ */ React.createElement(RoleSegmentedControl, { role, setRole, setTab, requestDelivery, requestAdmin, adminUnlocked })))));
   }
   function LoadingScreen() {
     return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 80 } }, /* @__PURE__ */ React.createElement("div", { className: "loading-spinner" }), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--muted)", marginTop: 16, letterSpacing: "0.04em" } }, "Loading"));
