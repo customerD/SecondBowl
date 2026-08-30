@@ -9,6 +9,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <style>
   html, body { margin: 0; padding: 0; }
   #root { min-height: 100vh; }
@@ -388,6 +391,7 @@
   const AlertTriangle = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u26A0", ...p });
   const Clock = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F550}", ...p });
   const MapPin = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F4CD}", ...p });
+  const MapIcon = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F5FA}", ...p });
   const Lock = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F512}", ...p });
   const Unlock = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F513}", ...p });
   const Navigation = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F9ED}", ...p });
@@ -419,7 +423,7 @@
   const Heart = ({ fill, ...p }) => /* @__PURE__ */ React.createElement(Glyph, { e: fill && fill !== "none" ? "\u2665" : "\u2661", ...p });
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
-  const APP_VERSION = "6.4.0";
+  const APP_VERSION = "6.5.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -3306,6 +3310,98 @@
       setNewBreed("");
     } }, /* @__PURE__ */ React.createElement(Plus, { size: 14 }), " Add breed"))));
   }
+  // Plots every order's delivery address on a real map -- a heatmap by
+  // default (denser = more orders from that area, which answers "where
+  // should I expand" at a glance far better than a wall of individual
+  // pins would once there's any real order volume), with a pin view
+  // available for looking at individual addresses. Delivery areas
+  // (kitchens) are shown as fixed markers for context. Uses Leaflet with
+  // OpenStreetMap tiles specifically because it needs no API key or
+  // billing account, unlike Google Maps' JS API, for a page that's purely
+  // informational and never needs turn-by-turn directions.
+  function AdminCustomerMap({ orders, locations }) {
+    const mapContainerRef = useRef(null);
+    const mapRef = useRef(null);
+    const heatLayerRef = useRef(null);
+    const pinsLayerRef = useRef(null);
+    const kitchenLayerRef = useRef(null);
+    const [viewMode, setViewMode] = useState("heatmap");
+    const [perCustomer, setPerCustomer] = useState(false);
+    const [mapError, setMapError] = useState(false);
+    const points = useMemo(() => {
+      const seen = new Set();
+      const pts = [];
+      orders.forEach((o) => {
+        const addr = o.customerAddress;
+        if (!addr || typeof addr.lat !== "number" || typeof addr.lng !== "number") return;
+        if (perCustomer) {
+          const key = o.customerId || o.customerName;
+          if (seen.has(key)) return;
+          seen.add(key);
+        }
+        pts.push({ lat: addr.lat, lng: addr.lng, customerName: o.customerName, label: addr.label, address: addr.address });
+      });
+      return pts;
+    }, [orders, perCustomer]);
+    const activeLocs = useMemo(() => locations.filter((l) => l.active && typeof l.lat === "number"), [locations]);
+    useEffect(() => {
+      if (!mapContainerRef.current || mapRef.current) return;
+      if (typeof window.L === "undefined") {
+        setMapError(true);
+        return;
+      }
+      const centerLat = activeLocs.length > 0 ? activeLocs.reduce((s, l) => s + l.lat, 0) / activeLocs.length : (points[0]?.lat ?? 20.5937);
+      const centerLng = activeLocs.length > 0 ? activeLocs.reduce((s, l) => s + l.lng, 0) / activeLocs.length : (points[0]?.lng ?? 78.9629);
+      const map = window.L.map(mapContainerRef.current).setView([centerLat, centerLng], activeLocs.length > 0 || points.length > 0 ? 12 : 5);
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "\u00A9 OpenStreetMap contributors",
+        maxZoom: 19
+      }).addTo(map);
+      mapRef.current = map;
+      return () => {
+        map.remove();
+        mapRef.current = null;
+      };
+      // eslint-disable-next-line
+    }, []);
+    useEffect(() => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (kitchenLayerRef.current) map.removeLayer(kitchenLayerRef.current);
+      const layer = window.L.layerGroup();
+      activeLocs.forEach((l) => {
+        window.L.marker([l.lat, l.lng], {
+          icon: window.L.divIcon({
+            className: "",
+            html: `<div style="background:#2f6b3f;color:#fff;border-radius:8px;padding:4px 9px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,0.35);transform:translate(-50%,-100%)">\u{1F3E0} ${l.name}</div>`,
+            iconSize: null
+          })
+        }).addTo(layer);
+      });
+      layer.addTo(map);
+      kitchenLayerRef.current = layer;
+    }, [activeLocs]);
+    useEffect(() => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (heatLayerRef.current) { map.removeLayer(heatLayerRef.current); heatLayerRef.current = null; }
+      if (pinsLayerRef.current) { map.removeLayer(pinsLayerRef.current); pinsLayerRef.current = null; }
+      if (points.length === 0) return;
+      if (viewMode === "heatmap") {
+        heatLayerRef.current = window.L.heatLayer(points.map((p) => [p.lat, p.lng, 0.6]), { radius: 26, blur: 20, maxZoom: 17 }).addTo(map);
+      } else {
+        const layer = window.L.layerGroup();
+        points.forEach((p) => {
+          window.L.circleMarker([p.lat, p.lng], { radius: 5, color: "#c05a3a", fillColor: "#c05a3a", fillOpacity: 0.75, weight: 1 })
+            .bindPopup(`<b>${(p.customerName || "Customer").replace(/</g, "")}</b><br>${(p.label || "").replace(/</g, "")} ${(p.address || "").replace(/</g, "")}`)
+            .addTo(layer);
+        });
+        layer.addTo(map);
+        pinsLayerRef.current = layer;
+      }
+    }, [points, viewMode]);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement(SectionTitle, { eyebrow: "Admin", title: "Customer Map", sub: `${points.length} order location${points.length === 1 ? "" : "s"} plotted \u2014 see where demand is concentrated.` }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { small: true, variant: viewMode === "heatmap" ? "accent" : "ghost", onClick: () => setViewMode("heatmap") }, "Heatmap"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: viewMode === "pins" ? "accent" : "ghost", onClick: () => setViewMode("pins") }, "Pins"), /* @__PURE__ */ React.createElement(Btn, { small: true, variant: perCustomer ? "accent" : "ghost", onClick: () => setPerCustomer((v) => !v) }, perCustomer ? "1 per customer" : "1 per order"))), mapError ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--muted)", fontSize: 13.5 } }, "The map library didn't load. Check your connection and refresh -- if it keeps happening, the map CDN scripts may be blocked on this network.")) : /* @__PURE__ */ React.createElement("div", { ref: mapContainerRef, style: { height: 560, borderRadius: 16, overflow: "hidden", border: "1px solid var(--ring)" } }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: "var(--muted)", marginTop: 10 } }, "\u{1F3E0} markers are your active delivery areas. Every other point reflects a placed order's delivery address, regardless of its current status \u2014 toggle \"1 per customer\" to see distinct customers instead of every order."));
+  }
   function AdminLocations({ locations, setLocations, logAudit }) {
     const [form, setForm] = useState({ name: "", lat: "", lng: "", orderLimit: "", tiers: [{ maxKm: 3, fee: 0 }] });
     const [geoBusy, setGeoBusy] = useState(false);
@@ -4523,6 +4619,7 @@
     { id: "ingredients", label: "Ingredients", icon: SlidersHorizontal },
     { id: "rules", label: "Rules", icon: Settings },
     { id: "locations", label: "Delivery Areas", icon: MapPin },
+    { id: "customermap", label: "Customer Map", icon: MapIcon },
     { id: "schedule", label: "Schedule", icon: CalendarDays },
     { id: "delivery", label: "Delivery Partners", icon: Truck },
     { id: "payments", label: "Payments", icon: QrCode },
@@ -5530,7 +5627,7 @@
         onOpenAuth: openAuth,
         markLocalEdit
       }
-    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, locations, slotOverrides, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
+    ), role === "admin" && tab === "dashboard" && /* @__PURE__ */ React.createElement(AdminDashboard, { config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locations, areaFilter: adminAreaFilter, setAreaFilter: setAdminAreaFilter, onGoToOrders: goToOrdersFiltered, onRefresh: refresh }), role === "admin" && tab === "orders" && /* @__PURE__ */ React.createElement(AdminOrders, { orders, setOrders: setOrdersT, carts, setCarts: setCartsT, config, sessionClaims, locations, slotOverrides, logAudit, initialFilter: pendingOrderFilter, onConsumeInitialFilter: () => setPendingOrderFilter(null), onRefresh: refresh }), role === "admin" && tab === "ingredients" && /* @__PURE__ */ React.createElement(AdminIngredients, { ingredients, setIngredients, logAudit }), role === "admin" && tab === "rules" && /* @__PURE__ */ React.createElement(AdminRules, { breeds, setBreeds, logAudit }), role === "admin" && tab === "locations" && /* @__PURE__ */ React.createElement(AdminLocations, { locations, setLocations: setLocationsT, logAudit }), role === "admin" && tab === "customermap" && /* @__PURE__ */ React.createElement(AdminCustomerMap, { orders, locations }), role === "admin" && tab === "schedule" && /* @__PURE__ */ React.createElement(
       AdminSchedule,
       {
         config,
