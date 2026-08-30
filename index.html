@@ -418,7 +418,7 @@
   const Heart = ({ fill, ...p }) => /* @__PURE__ */ React.createElement(Glyph, { e: fill && fill !== "none" ? "\u2665" : "\u2661", ...p });
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
-  const APP_VERSION = "6.2.0";
+  const APP_VERSION = "6.3.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -2339,7 +2339,20 @@
         ...extra
       };
       let alreadyPersisted = false;
-      if (session) {
+      // Only actually RESERVE a slot -- and run its capacity check -- the
+      // moment the customer reaches "Continue to Payment" (extra.status
+      // becomes "awaiting_payment"). Every save before that is just
+      // remembering their in-progress draft so a tab switch or refresh
+      // doesn't lose it, and must never itself compete for or consume
+      // capacity. Reserving on every routine ingredient tweak was the
+      // actual bug: it silently held a real slot no one had asked to book
+      // yet, that hold never showed up in admin's Carted Orders view
+      // (which only lists carts with a draftSnapshot, and routine saves
+      // never carry one), and if that premature reservation happened to
+      // hit "slot full," this function returned before ever saving the
+      // draft -- which is also why the customer's selections could vanish
+      // even though they never asked to reserve anything.
+      if (session && extra.status === "awaiting_payment") {
         const capacity = resolveCapacity(date, session, config, slotOverrides, locationResolved?.kitchenId, locations);
         try {
           const result = await reserveSlotAtomic(entry, capacity, config.paymentTimeoutMinutes);
@@ -2460,6 +2473,28 @@
       }, 1200);
       return () => clearTimeout(cartSaveTimerRef.current);
     }, [dogId, date, session, selected, customQty, deliveryNote, leaveAtDoor, uncheckedItems]);
+    // Kept up to date every render (a plain assignment, not an effect --
+    // saveCart is a brand-new function each render anyway, so gating this
+    // on a dependency array would be pointless) purely so the unmount
+    // cleanup below can call the CURRENT version rather than whatever
+    // stale closure existed when that effect first ran.
+    const saveCartRef = useRef(null);
+    saveCartRef.current = saveCart;
+    // Flushes any still-pending debounced save the instant this view goes
+    // away -- switching tabs (My Orders, Profile, etc.) unmounts this
+    // component, and the debounce effect's own cleanup above just cancels
+    // the pending timer without ever running it. Without this, editing
+    // something and then switching tabs within that 1.2s window silently
+    // dropped the edit -- exactly the "adjusted it, came back, and it
+    // wasn't there" symptom.
+    useEffect(() => {
+      return () => {
+        if (cartSaveTimerRef.current) {
+          clearTimeout(cartSaveTimerRef.current);
+          saveCartRef.current();
+        }
+      };
+    }, []);
     const nextSlot = useMemo(() => nextAvailableSlot(config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations), [config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId]);
     const bothFullToday = ["morning", "evening"].every((k) => {
       const st = sessionState(todayStr(), k, config, orders, cancelledSlots, forceOpenSlots, slotOverrides, locationResolved?.kitchenId, locations);
