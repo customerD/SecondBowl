@@ -270,6 +270,14 @@
       }
       return data;
     };
+    window.__verifyAdminPassword__ = async function(password) {
+      const data = await fetchSheetsJson_(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "verifyAdminPassword", password, token: SHEETS_TOKEN })
+      });
+      return data;
+    };
     window.__signupPartner__ = async function(name, phone, partnerId, passwordHash) {
       const data = await fetchSheetsJson_(SHEETS_API_URL, {
         method: "POST",
@@ -410,8 +418,7 @@
   const Heart = ({ fill, ...p }) => /* @__PURE__ */ React.createElement(Glyph, { e: fill && fill !== "none" ? "\u2665" : "\u2661", ...p });
   const Share2 = (p) => /* @__PURE__ */ React.createElement(Glyph, { e: "\u{1F517}", ...p });
   const SHARED = true;
-  const ADMIN_PASSWORD = "dsudo_007";
-  const APP_VERSION = "6.1";
+  const APP_VERSION = "6.2.0";
   const K = {
     config: "dfp:config",
     ingredients: "dfp:ingredients",
@@ -491,6 +498,10 @@
   }
   async function restoreReservationAtomic(params) {
     if (window.__restoreReservation__) return window.__restoreReservation__(params);
+    return null;
+  }
+  async function verifyAdminPasswordAtomic(password) {
+    if (window.__verifyAdminPassword__) return window.__verifyAdminPassword__(password);
     return null;
   }
   async function signupPartner(name, phone, partnerId, passwordHash) {
@@ -1526,8 +1537,8 @@
   function Modal({ children, onCancel, maxWidth = 360 }) {
     return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(20,20,20,0.45)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }, onClick: onCancel }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { background: "var(--surface)", borderRadius: 20, padding: 28, width: "100%", maxWidth, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px -20px rgba(0,0,0,0.4)" } }, children));
   }
-  function PasswordModal({ value, setValue, error, onSubmit, onCancel }) {
-    return /* @__PURE__ */ React.createElement(Modal, { onCancel }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--ink)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Lock, { size: 16, color: "var(--btn-primary-fg)" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, "Admin sign-in")), /* @__PURE__ */ React.createElement(Field, { label: "Password" }, /* @__PURE__ */ React.createElement("input", { type: "password", autoFocus: true, style: inputStyle, value, onChange: (e) => setValue(e.target.value), onKeyDown: (e) => e.key === "Enter" && onSubmit(), placeholder: "Password" })), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: onSubmit, full: true }, "Unlock"), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", onClick: onCancel, full: true }, "Cancel")));
+  function PasswordModal({ value, setValue, error, busy, onSubmit, onCancel }) {
+    return /* @__PURE__ */ React.createElement(Modal, { onCancel }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--ink)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(Lock, { size: 16, color: "var(--btn-primary-fg)" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, "Admin sign-in")), /* @__PURE__ */ React.createElement(Field, { label: "Password" }, /* @__PURE__ */ React.createElement("input", { type: "password", autoFocus: true, style: inputStyle, value, onChange: (e) => setValue(e.target.value), onKeyDown: (e) => e.key === "Enter" && onSubmit(), placeholder: "Password" })), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: onSubmit, disabled: busy, loadingText: "Checking\u2026", full: true }, "Unlock"), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", onClick: onCancel, full: true }, "Cancel")));
   }
   function AuthModal({ mode, name, setName, pw, setPw, pw2, setPw2, email, setEmail, forgotEmail, setForgotEmail, error, busy, forgotSent, onLogin, onSignup, onForgotSubmit, onSwitchMode, onCancel }) {
     return /* @__PURE__ */ React.createElement(Modal, { onCancel }, /* @__PURE__ */ React.createElement("div", { className: "auth-modal-enter" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--leaf)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(CircleUser, { size: 16, color: "#fff" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, mode === "login" ? "Log in" : mode === "signup" ? "Create your account" : "Reset your password")), mode === "login" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, /* @__PURE__ */ React.createElement(Field, { label: "Your name" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, style: inputStyle, value: name, onChange: (e) => setName(e.target.value), placeholder: "Rahul" })), /* @__PURE__ */ React.createElement(Field, { label: "Password" }, /* @__PURE__ */ React.createElement("input", { type: "password", style: inputStyle, value: pw, onChange: (e) => setPw(e.target.value), onKeyDown: (e) => e.key === "Enter" && onLogin(), placeholder: "Password" }))), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: onLogin, disabled: busy, full: true }, "Log in"), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", onClick: onCancel, full: true }, "Cancel")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", marginTop: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 } }, /* @__PURE__ */ React.createElement("span", null, "New here? ", /* @__PURE__ */ React.createElement("button", { onClick: () => onSwitchMode("signup"), style: { background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" } }, "Create an account")), /* @__PURE__ */ React.createElement("button", { onClick: () => onSwitchMode("forgot"), style: { background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" } }, "Forgot password?"))), mode === "signup" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, /* @__PURE__ */ React.createElement(Field, { label: "Your name" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, style: inputStyle, value: name, onChange: (e) => setName(e.target.value), placeholder: "Rahul" })), /* @__PURE__ */ React.createElement(Field, { label: "Email" }, /* @__PURE__ */ React.createElement("input", { type: "email", style: inputStyle, value: email, onChange: (e) => setEmail(e.target.value), placeholder: "rahul@example.com" })), /* @__PURE__ */ React.createElement(Field, { label: "Create a password" }, /* @__PURE__ */ React.createElement("input", { type: "password", style: inputStyle, value: pw, onChange: (e) => setPw(e.target.value), placeholder: "At least 4 characters" })), /* @__PURE__ */ React.createElement(Field, { label: "Confirm password" }, /* @__PURE__ */ React.createElement("input", { type: "password", style: inputStyle, value: pw2, onChange: (e) => setPw2(e.target.value), onKeyDown: (e) => e.key === "Enter" && onSignup(), placeholder: "Repeat password" }))), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: onSignup, disabled: busy, full: true }, "Create account"), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", onClick: onCancel, full: true }, "Cancel")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: "var(--muted)", marginTop: 14 } }, "Already have an account? ", /* @__PURE__ */ React.createElement("button", { onClick: () => onSwitchMode("login"), style: { background: "none", border: "none", color: "var(--leaf)", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" } }, "Log in"), " instead.")), mode === "forgot" && /* @__PURE__ */ React.createElement(React.Fragment, null, forgotSent ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, lineHeight: 1.6 } }, "If an account with that email exists, we've sent a password reset link to it. Check your inbox (and spam folder) for a message from us."), /* @__PURE__ */ React.createElement(Btn, { full: true, style: { marginTop: 14 }, onClick: onCancel }, "Done")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, color: "var(--muted)", margin: "0 0 12px" } }, "Enter the email you signed up with, and we'll send you a link to reset your password."), /* @__PURE__ */ React.createElement(Field, { label: "Email" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "email", style: inputStyle, value: forgotEmail, onChange: (e) => setForgotEmail(e.target.value), onKeyDown: (e) => e.key === "Enter" && onForgotSubmit(), placeholder: "rahul@example.com" })), error && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--clay)", fontSize: 13, marginTop: 8 } }, error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: onForgotSubmit, disabled: busy, full: true }, "Send reset link"), /* @__PURE__ */ React.createElement(Btn, { variant: "ghost", onClick: () => onSwitchMode("login"), full: true }, "Back"))))));
@@ -2433,8 +2444,16 @@
         window.removeEventListener("pagehide", onPageHide);
       };
     }, [stage]);
+    // Auto-saves the customer's in-progress draft (ingredients, quantities,
+    // notes, etc.) so a refresh never loses work-in-progress -- previously
+    // gated on a session already being selected, which meant adjusting
+    // ingredients *before* picking a date/session was never saved at all,
+    // since this effect just returned early and saveCart() never even got
+    // called. saveCart() itself already handles the no-session case fine
+    // (it only skips the slot-reservation call, still persists the draft
+    // either way), so the fix is just not gating the trigger on it too.
     useEffect(() => {
-      if (!restoredCartRef.current || !myCustomerId || !dog || !session) return;
+      if (!restoredCartRef.current || !myCustomerId || !dog) return;
       clearTimeout(cartSaveTimerRef.current);
       cartSaveTimerRef.current = setTimeout(() => {
         saveCart();
@@ -4915,16 +4934,41 @@
       setPwError("");
       setShowPwModal(true);
     };
-    const submitPassword = () => {
-      if (pwInput === ADMIN_PASSWORD) {
-        setAdminUnlocked(true);
-        window.storage.set("dfp:adminUnlocked", "true", false).catch(() => {
-        });
-        setRole("admin");
-        setTab("dashboard");
-        setShowPwModal(false);
-        refresh();
-      } else setPwError("Incorrect password.");
+    const [pwVerifying, setPwVerifying] = useState(false);
+    const submitPassword = async () => {
+      setPwVerifying(true);
+      setPwError("");
+      try {
+        const result = await verifyAdminPasswordAtomic(pwInput);
+        if (result?.ok) {
+          setAdminUnlocked(true);
+          window.storage.set("dfp:adminUnlocked", "true", false).catch(() => {
+          });
+          setRole("admin");
+          setTab("dashboard");
+          setShowPwModal(false);
+          refresh();
+        } else if (result === null) {
+          // No Sheets backend configured -- there's no server to check
+          // the real password against, so this dev-only fallback exists
+          // purely so the admin views are still reachable while testing
+          // locally. It's never used once a real backend is deployed.
+          if (pwInput === "preview") {
+            setAdminUnlocked(true);
+            setRole("admin");
+            setTab("dashboard");
+            setShowPwModal(false);
+            refresh();
+          } else {
+            setPwError("Incorrect password.");
+          }
+        } else {
+          setPwError("Incorrect password.");
+        }
+      } catch {
+        setPwError("Couldn't verify that right now. Please try again.");
+      }
+      setPwVerifying(false);
     };
     const lockAdmin = () => {
       setAdminUnlocked(false);
@@ -5229,7 +5273,7 @@
       return /* @__PURE__ */ React.createElement(TrackOrderView, { orderId: trackOrderId, orders, config, qrCode });
     }
     if (loading) return /* @__PURE__ */ React.createElement(Shell, { theme }, /* @__PURE__ */ React.createElement(LoadingScreen, null));
-    return /* @__PURE__ */ React.createElement(Shell, { theme }, showPwModal && /* @__PURE__ */ React.createElement(PasswordModal, { value: pwInput, setValue: setPwInput, error: pwError, onSubmit: submitPassword, onCancel: () => setShowPwModal(false) }), showQrPrompt && /* @__PURE__ */ React.createElement(Modal, { onCancel: dismissQrPrompt, maxWidth: 380 }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--turmeric)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(QrCode, { size: 16, color: "#1d1d1f" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, "Add a payment QR code")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 18 } }, "No QR code is set up yet, so customers can't place an order right now. Upload one in Payments to open up ordering."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { full: true, onClick: () => {
+    return /* @__PURE__ */ React.createElement(Shell, { theme }, showPwModal && /* @__PURE__ */ React.createElement(PasswordModal, { value: pwInput, setValue: setPwInput, error: pwError, busy: pwVerifying, onSubmit: submitPassword, onCancel: () => setShowPwModal(false) }), showQrPrompt && /* @__PURE__ */ React.createElement(Modal, { onCancel: dismissQrPrompt, maxWidth: 380 }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "var(--turmeric)", borderRadius: 10, padding: 8, display: "flex" } }, /* @__PURE__ */ React.createElement(QrCode, { size: 16, color: "#1d1d1f" })), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 19 } }, "Add a payment QR code")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: "var(--muted)", marginBottom: 18 } }, "No QR code is set up yet, so customers can't place an order right now. Upload one in Payments to open up ordering."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { full: true, onClick: () => {
       setTab("payments");
       dismissQrPrompt();
     } }, "Go to Payments"), /* @__PURE__ */ React.createElement(Btn, { full: true, variant: "ghost", onClick: dismissQrPrompt }, "Don't show this again"))), authOpen && /* @__PURE__ */ React.createElement(
